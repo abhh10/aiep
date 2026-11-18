@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+# experiment artifacts and secrets never go in git
+runs/
+logs/
+.env
+.env.*
+*.key
