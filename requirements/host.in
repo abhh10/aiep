@@ -1,0 +1,6 @@
+# Direct host dependencies (the harness side, not the evaluator's build dependencies).
+# pyproject.toml [project].dependencies must be a subset of this file (tested).
+# Evaluator build dependencies live ONLY in config/wheelhouse.json.
+swebench==5.0.2
+# dev
+pytest

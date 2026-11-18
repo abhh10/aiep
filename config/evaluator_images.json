@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "note": "Expected local evaluator images. image_id is checked against the Docker daemon before any container is created; a missing or different image is an error and is never pulled.",
+  "images": {
+    "pytest-dev__pytest-5227": {
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5227:latest",
+      "image_id": "sha256:c91459f86ed261ab81871b086d7ca2d9fe16abd2ddf374bf172edd5d991fd28b",
+      "source": "docs/M1_RESULTS.md section 4 (recorded in M1 runs)"
+    }
+  }
+}

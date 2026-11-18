@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "repo_id": "SWE-bench/SWE-bench_Lite",
+  "split": "test",
+  "revision": "b0dde1093fe417d83b7184254edf8199c1f0dff5",
+  "provenance": "Reconstructed in M1 (docs/M1_RESULTS.md section 4: the only snapshot in the project's HF cache). From M2 the revision is pinned here and verified against the cache's refs/main before every run; the harness itself cannot take a revision argument."
+}

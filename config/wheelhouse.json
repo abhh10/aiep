@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "status": "unpopulated",
+  "note": "Evaluator build dependencies only (never host dependencies; see requirements/host.lock). Populated in M2 Phase 3 Step 10 with names, versions and sha256 of pure-Python wheels. While status is not 'populated' no evaluator attestation can be built, so the evaluator cannot grade anything.",
+  "wheels": []
+}

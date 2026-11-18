@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "model": "claude-sonnet-5-5",
+  "model_scope": "ONE pinned model ID for every configuration (A and B) and every background call. The gateway rejects any other model ID and stops the run.",
+  "model_id_source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview (retrieved 2026-11-19): 'Model ID: claude-sonnet-5-5'; models overview: every Claude model ID is a pinned snapshot, dateless IDs included.",
+  "upstream_host": "api.anthropic.com"
+}

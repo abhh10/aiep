@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "currency": "USD",
+  "unit": "per million tokens (MTok)",
+  "retrieved": "2026-11-19",
+  "sources": [
+    "https://platform.claude.com/docs/en/about-claude/pricing",
+    "https://platform.claude.com/docs/en/models/sonnet-5-5/overview"
+  ],
+  "models": {
+    "claude-sonnet-5-5": {
+      "input": "2",
+      "output": "10",
+      "cache_read": "0.10",
+      "cache_write_5m": "2.50",
+      "cache_write_1h": "4",
+      "notes": [
+        "Pricing page row, verbatim: Claude Sonnet 5.5 | $2 / MTok | $2.50 / MTok | $4 / MTok | $0.10 / MTok | $10 / MTok (columns: base input, 5m cache writes, 1h cache writes, cache hits and refreshes, output).",
+        "No long-context surcharge for Sonnet 5.5 (1M context at standard pricing). Batch discount and the US-only inference_geo 1.1x multiplier are not used.",
+        "The pages do not document a 5m/1h cache-creation usage breakdown. Cache-creation tokens the response does not classify are priced at the 1h rate (an upper bound) and flagged."
+      ]
+    }
+  }
+}
