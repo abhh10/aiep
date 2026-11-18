@@ -6,6 +6,7 @@ __pycache__/
 # experiment artifacts and secrets never go in git
 runs/
 logs/
+.cache/
 .env
 .env.*
 *.key
