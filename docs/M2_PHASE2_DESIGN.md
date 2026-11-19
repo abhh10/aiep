@@ -1,34 +1,88 @@
 # M2 Phase 2 design: injection-based agent and gateway containers
 
-Status: **Step 0b (local software only) is implemented, remediated (see below) and unit-tested with
-fakes. It is NOT Docker-validated: nothing here has run against Docker.** Every statement about Docker, Docker Desktop or the images below is either
-marked *measured* (read from local image metadata) or *unverified* (to be proved in a separately
-approved Docker step).
+Status: **Step 0b (local software) is implemented, remediated (see below), committed as 81e0e70 and unit-tested with
+fakes. The agent and gateway lifecycle is NOT Docker-validated: none of the lifecycle code has run against Docker.** One
+disposable inspection container (the conformance probe of 2026-11-19, below) established facts about the existing instance image and
+its `nonroot` account; it did not exercise the lifecycle. Every statement about Docker, Docker Desktop or the images is marked
+*measured*/*probe-verified* (observed) or *unverified* (to be proved in a separately approved Docker step).
 
 ## Maturity legend (used throughout)
 
 * **Implemented** = the code exists in `src/aiep`.
 * **Fake-tested** = exercised by `tests/` against fakes (socket-pair exec, temporary directories, scripted agent). Nothing in this
   document is Docker-validated.
-* **Docker-validated** = proved against a real daemon in an approval-gated step. **Nothing is, yet.**
+* **Probe-verified** = a fact about the existing image or its account observed directly inside one disposable container (section
+  below). This is evidence about the image only, not validation of any lifecycle code.
+* **Docker-validated** = the lifecycle code proved against a real daemon in an approval-gated step. **Nothing is, yet.**
+
+## Verified by the Docker conformance probe (2026-11-19)
+
+One disposable container was created from the existing instance image by its immutable ID
+`sha256:c91459f86ed261ab81871b086d7ca2d9fe16abd2ddf374bf172edd5d991fd28b` (linux/amd64, run under Rosetta on the arm64 daemon;
+`swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5227`), with network none, all capabilities dropped, no-new-privileges, 512 MiB,
+1 CPU, 256 pids, no mounts, volumes or ports, and `/bin/sleep 2147483647` as PID 1. It was used for read-only inspection, then stopped and
+removed; resource counts returned to their starting values.
+
+**Verified (observed directly):**
+
+* **Account.** `nonroot:x:1000:1000:dog,,,:/home/nonroot:/bin/bash`: username `nonroot`, **uid 1000, gid 1000**, home
+  **`/home/nonroot`**, shell **`/bin/bash`** (executable, listed in `/etc/shells`), no supplementary groups. `docker exec -u nonroot`,
+  `-u 1000:1000` and `-u 1000` each select it (`id` printed uid 1000 / gid 1000 `nonroot` for all three); `HOME=/home/nonroot` was
+  observed for `-u nonroot` and `-u 1000:1000`, and was not separately recorded for `-u 1000`. `su nonroot` fails with all capabilities
+  dropped (it is not used). uid 1001 has no passwd entry, and a uid without an entry gets `HOME=/` from Docker, so a bare numeric uid is not enough.
+* **Interpreters (both executable by `nonroot`).** `/opt/miniconda3/bin/python` -> `python3.11`, **Python 3.11.5** (the AIEP
+  verification interpreter); `/opt/miniconda3/envs/testbed/bin/python` -> `python3.9`, **Python 3.9.20** (the task's interpreter,
+  first on the experiment PATH). Both run `-I -c` and import `hashlib`, `json`, `os`, `stat`, `sys`; `VERIFY_SCRIPT` ran under the 3.11
+  interpreter as `nonroot` over `/testbed` (689 entries, no errors). `/usr/bin/python3` (3.10) also exists and is not used.
+* **Other tools.** `/bin/sh` -> `dash`; `/bin/bash` 5.1.16; `/bin/tar` GNU tar 1.34; `/usr/bin/git` 2.34.1; `/usr/bin/id`;
+  `/usr/bin/getent`. Ubuntu 22.04.5.
+* **Filesystem, as shipped (before any tmpfs).** `/testbed`: root-owned mode 777, 690 entries all owned 0:0, no symlinks, special files or
+  setuid bits, all readable and traversable by `nonroot` (550 entries mode 777, 71 mode 444 git objects, 65 mode 755, 4 mode 644).
+  `/opt/miniconda3`: root-owned 755, readable and traversable by `nonroot`, not writable. `/home/nonroot`: owned 1000:1000, mode 750.
+  `/tmp`: 1777. `/opt/aiep` and `/home/agent`: absent.
+* **Container security as applied.** Every restriction above was present in `inspect`; from inside, `NoNewPrivs` was 1 and the
+  capability sets were empty. With capabilities dropped, root cannot read `/home/nonroot` (mode 750, other owner).
+* **Claude Code is not in the image.** No `node`, `npm` or `claude` exists at any checked path.
+* **Emulation side effect.** Rosetta creates `$HOME/.cache/rosetta` for each user on first use (seen in `/root` and `/home/nonroot`).
+
+The verified account and interpreters are recorded in `config/agent_identity.json` (status `verified`).
+
+**Still unverified (the probe did not test these):**
+
+* Claude Code installation and execution in the agent container (its size, libraries and behaviour as this account).
+* The read-only root filesystem and tmpfs behaviour, including a tmpfs mounted over `/home/nonroot` and whether Rosetta and Claude Code
+  tolerate `HOME` on a tmpfs with a read-only root.
+* tmpfs ownership and permissions: the `uid`/`gid`/`mode` options as echoed by `docker inspect`, and `tar -p` extraction as this
+  account into a tmpfs.
+* Exec stdin half-close, and agent quiescence (`kill -KILL -1` as this account).
+* The full real Docker agent lifecycle (create, inject, verify, run, quiesce, extract, remove), and the gateway lifecycle.
+* Integration of the identity configuration into the production runner: `load_agent_config` exists and is tested, but nothing in the
+  runner loads it, and nothing yet checks `AgentRunSpec.python` against `verification_python` or `AgentRunSpec.image_id` against the
+  verified image ID.
+* The gateway image (`python:3.12-slim` is neither pulled nor pinned).
 
 ## Remediation 2 (identity, environment, gateway image, lifecycle): implemented and fake-tested only
 
 Decisions taken after a read-only compatibility audit. Local source and tests only; no Docker, pull, network or API use.
 
-1. **Agent identity (implemented, fake-tested; the real values are UNVERIFIED).**
-   * Evidence: the installed swebench builder source says images have a `nonroot` account (`chmod -R 777 /testbed  # So nonroot user
-     can run tests`; a different builder runs `adduser ... nonroot`). **No local artifact records that account's uid, gid or home**
-     (M1 inspect: `Config.User` is `root`). So no identity is invented: `config/agent_identity.json` has status `unverified` with
-     null uid, gid and home, and `load_agent_identity` refuses it.
+1. **Agent identity (implemented, fake-tested; the account is probe-verified; runtime behaviour is unverified).**
+   * History and evidence: this design first recorded the identity as unverified, because no local artifact gave the `nonroot`
+     account's uid, gid or home (the swebench builder source only implied the account; M1's `Config.User` is `root`), and
+     nothing was invented. The conformance probe above then observed it in the pinned image, and `config/agent_identity.json` now
+     records it with status `verified`: `nonroot`, uid 1000, gid 1000, home `/home/nonroot`, shell `/bin/bash`, no supplementary groups,
+     verification interpreter `/opt/miniconda3/bin/python` (3.11.5), testbed interpreter `/opt/miniconda3/envs/testbed/bin/python`
+     (3.9.20), image ID `sha256:c91459f86ed261ab81871b086d7ca2d9fe16abd2ddf374bf172edd5d991fd28b`. Those are image and account facts
+     only; how the account behaves under the read-only root, tmpfs mounts and Claude Code is still unverified.
    * `AgentIdentity(name, uid, gid, home)` has no defaults. Container user (`"uid:gid"`), exec user, the owner of every tmpfs, the
      HOME tmpfs path and `$HOME` are all derived from it; `harden` and `verify_inspect` require exactly that. **No home
      convention is assumed:** `validate_home_path` accepts any explicit, absolute, normalised, plain path and refuses the root and
      system directories, the special filesystems, and anything that is, contains, or lies inside `/testbed`, `/opt/aiep`,
      `/opt/aiep-gw`, `/tmp` or `/opt/miniconda3`; per run, `check_home_overlaps` also refuses a home that overlaps a PATH
-     directory or the pinned interpreter. The loader fails closed: a missing key, null, non-`verified` status or any invalid
-     value raises. Whether Docker can mount a tmpfs at a home path that does not exist on the read-only root (for example
-     `/nonexistent`) is unverified.
+     directory or the pinned interpreter. The loader (`load_agent_config`) fails closed: a missing or null key, an unknown key, a
+     key repeated at any depth, a non-`verified` status, any invalid or contradictory value, or (when the caller names the image) a
+     different image ID raises. It is not yet used by the runner (see the unverified list above). `/home/nonroot` exists on the image's
+     root filesystem; mounting a tmpfs over it, or over a home path absent from the read-only root (for example `/nonexistent`), is
+     unverified.
    * A numeric uid without a passwd entry is not treated as sufficient: before anything is injected, every run executes
      `IDENTITY_SCRIPT` (`id -u`, `id -g`, `id -un`, `getent passwd`) as that user and requires uid, gid, name and home to match the
      passwd entry. A missing entry or any mismatch makes the run invalid (`agent identity check failed`).
@@ -90,8 +144,9 @@ tests. None of the fixes has been exercised against Docker.
    (`validate_interpreter_path`: absolute, normalised, plain characters, not on a writable or special
    filesystem), carried in `ExecContext.python`, and `harden_exec` runs **only that exact path**.
    `list_tree` uses it; there is no `PATH` lookup and no fallback, so a wrong path fails the run
-   (exit 127) before the agent starts. `/opt/miniconda3/bin/python` is the expected value for the instance
-   images but is **unverified** until a Docker step runs it.
+   (exit 127) before the agent starts. `/opt/miniconda3/bin/python` is the pinned value; the conformance probe later verified it
+   (Python 3.11.5, executable by `nonroot`, `-I -c` works). The probe also found that `/usr/bin/python3` (3.10) does exist, which this
+   first version's "nothing records a `/usr/bin/python3`" could not know; the design still pins the miniconda interpreter.
 2. **Gateway files have their own manifest and are verified before the gateway starts.** New module
    `gateway_runner.py`. The gateway container's PID 1 is now the same inert `sleep` keepalive as the agent's
    (the first version made `python -m aiep.gateway` PID 1, which would have started against an empty tmpfs
@@ -140,7 +195,7 @@ stdin into tmpfs mounts.
 | `/` | read-only image root | the pinned instance image | n/a | n/a |
 | `/testbed` | tmpfs, owned by the verified identity | the repository seed, the agent's workspace | yes | 192m (seed is 17.4 MiB measured) |
 | `/opt/aiep` | tmpfs, owned by the verified identity | Claude Code binary and its files | yes | 256m (binary size unmeasured) |
-| `/tmp`, `<identity.home>` (explicit, from the verified identity; unresolved) | tmpfs, owned by the identity, mode 0700 | scratch, Claude state | no | 128m each |
+| `/tmp`, `<identity.home>` = `/home/nonroot` (the verified home; the tmpfs over it is unverified) | tmpfs, owned by the identity, mode 0700 | scratch, Claude state | no | 128m each |
 
 Policy caps: 512 MiB per mount and 1 GiB in total (all of it counts against the 2 GiB memory limit).
 PID 1 is `/bin/sleep 2147483647`; the policy refuses any other command.
@@ -170,14 +225,15 @@ re-verifies tar and manifest -> in-container verification against the same manif
   `uid:gid` (see Remediation 2; the earlier `agent`/1001 placeholder no longer exists), so extraction needs no root
   and no capability (all are dropped).
 * Because the extracting user is not root, ownership comes from the mount, not the tar (root-owned
-  entries in the injection tar are written as `agent`). Modes come from the tar.
+  entries in the injection tar are written as the agent account, uid 1000). Modes come from the tar.
 * Nothing writes outside the four tmpfs paths: the exec policy limits `tar` destinations to
   `/testbed`, `/opt/aiep` and (gateway) `/opt/aiep-gw` and `/tmp/aiep`.
 * The agent can modify everything it owns, including the injected Claude binary. That does not
   matter after the start, and the orchestrator never executes anything from a tmpfs for its own
   purposes (extraction runs `/usr/bin/git` from the read-only root).
-* *Unverified:* that tmpfs `uid`/`mode` options and non-root `tar -p` behave as designed on Docker
-  Desktop, and that `HostConfig.Tmpfs` appears in `inspect` as the policy expects.
+* *Unverified:* that tmpfs `uid`/`gid`/`mode` options and non-root `tar -p` behave as designed on Docker
+  Desktop, and that `HostConfig.Tmpfs` appears in `inspect` as the policy expects. (The probe observed the image's own file ownership and
+  modes, not tmpfs mounts.)
 
 ## Lifecycle after start
 
@@ -236,20 +292,20 @@ be re-run inside the image as a conformance check.
    size is not yet known. If it does not fit, the fallback is a derived image (a build, separately approved).
 2. **Throughput:** the seed and binary pass over a Docker API socket. Large repositories may be slow;
    untested.
-3. **Tools required in the image:** `tar` (GNU), `sh`, and the explicitly configured Python interpreter
-   (for the instance image, expected `/opt/miniconda3/bin/python` from its `PATH`; whether it is readable and
-   executable by the non-root agent user is unverified). `tar`, `sh`, `id` and `getent` are unverified. The agent
-   account (`nonroot`) and its uid, gid and home are unverified (see Remediation 2 item 1); the per-run identity probe
-   will fail the run if they are not as configured. Claude Code's behaviour with this account is also unverified.
+3. **Tools required in the image:** all probe-verified in the pinned image: `/bin/tar` (GNU tar 1.34), `/bin/sh` (dash), `/bin/bash`
+   5.1.16, `/usr/bin/git` 2.34.1, `/usr/bin/id`, `/usr/bin/getent`, and the configured interpreter `/opt/miniconda3/bin/python` (3.11.5,
+   executable by `nonroot`). The agent account (`nonroot`, uid 1000, gid 1000, home `/home/nonroot`) is verified too (see "Verified by
+   the Docker conformance probe"); the per-run identity probe still re-checks it before anything is injected and fails the run on any
+   mismatch. Claude Code's installation, libraries and behaviour with this account are unverified.
 4. **Persistence:** tmpfs content dies with the container; there is no snapshotting.
 5. **Docker behaviours unverified:** the gateway image's availability, digest, Python path/version and entrypoint handling, tmpfs
    `uid`/`gid`/`mode` appearing in `inspect` exactly as written (the policy compares option strings; Docker
-   may normalise them), a non-root uid executing Python from tmpfs, `user="uid:gid"` for create and exec, hijacked exec sockets on Docker Desktop, stdin half-close,
+   may normalise them), a non-root uid executing Python from tmpfs, `user="uid:gid"` for create (exec with `-u 1000:1000` is probe-verified), hijacked exec sockets on Docker Desktop, stdin half-close,
    quiesce semantics, tmpfs option handling, anonymous-volume neutralisation.
 6. **Tests are simulations:** the fake daemon uses real socket pairs, real `tar`/git/python on temporary
    directories and a scripted fake agent, but nothing exercises real Docker.
 
-## Operations that remain approval-gated (none performed)
+## Operations that remain approval-gated (only the read-only inventory and the single conformance probe have been performed)
 
 1. Create (not start) one pristine instance container and `get_archive` `/testbed` to produce the seed.
 2. Create the two Docker networks (`--internal` agent network, egress network).

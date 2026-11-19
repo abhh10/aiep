@@ -66,7 +66,9 @@ def seed(repo):
     return s
 
 
-# TEST-ONLY identity: the real image's account is unverified (config/agent_identity.json).
+# Test-specific fixture identity, used with fakes only. It does not come from config/agent_identity.json. (The values happen to
+# equal the account the conformance probe verified in the real image: nonroot, uid 1000, gid 1000, /home/nonroot. They no
+# longer stand in for an unverified account; they are just fixtures for a fake container.)
 IDENT = AgentIdentity(name="nonroot", uid=1000, gid=1000, home="/home/nonroot")
 COMPONENTS = build_component_archive({"claude": (b"#!fake claude binary\n", 0o755)})
 

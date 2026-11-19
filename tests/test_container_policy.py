@@ -13,7 +13,9 @@ from aiep.container_policy import (gateway_tmpfs, validate_interpreter_path,
 )
 
 MODEL = "claude-sonnet-5-5"
-# TEST-ONLY identity values: the real image's account is unverified (config/agent_identity.json).
+# Test-specific fixture identity. The tests below exercise the policy for ANY valid AgentIdentity and do not load
+# config/agent_identity.json. (These values happen to equal the account the conformance probe verified in the real image:
+# nonroot, uid 1000, gid 1000, /home/nonroot. They no longer stand in for an unverified account; they are just fixtures.)
 IDENT = AgentIdentity(name="nonroot", uid=1000, gid=1000, home="/home/nonroot")
 OWN = f"uid={IDENT.uid},gid={IDENT.gid}"
 
