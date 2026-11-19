@@ -30,8 +30,8 @@ from typing import Any, Callable
 from .agent_env import IDENTITY_SCRIPT, check_home_overlaps, check_identity, experiment_env
 from .container_exec import (REGISTERED_SCRIPTS, ExecError, ExecSession, exec_env, git_exec_env, inject_tar,
                              list_tree, quiesce, run_exec)
-from .container_policy import (AGENT_KEEPALIVE_COMMAND, AgentContext, AgentIdentity, ExecContext, harden,
-                               harden_exec, validate_interpreter_path, verify_inspect)
+from .container_policy import (AGENT_IPC_MODE, AGENT_KEEPALIVE_COMMAND, AGENT_SHM_DEFAULT, AgentContext, AgentIdentity,
+                               ExecContext, harden, harden_exec, validate_interpreter_path, verify_inspect)
 from .patch import HARDENED_GIT, MAX_PATCH_BYTES, PatchResult, container_git_runner, extract_patch
 from .seed import Seed, verify_archive, verify_listing
 
@@ -72,6 +72,9 @@ class AgentRunSpec:
     tmp_size: str = "128m"
     home_size: str = "128m"
     components_size: str = "256m"
+    # Docker's own /dev/shm, configured explicitly (see container_policy): private IPC and a pinned size, never left to defaults
+    shm_size: str = AGENT_SHM_DEFAULT
+    ipc_mode: str = AGENT_IPC_MODE
     max_patch_bytes: int = MAX_PATCH_BYTES
     forbidden_secrets: tuple[str, ...] = ()  # e.g. the real API key: must never reach the container
 
@@ -129,7 +132,8 @@ def record_of(result: AgentResult) -> dict[str, Any]:
 def agent_context(spec: AgentRunSpec) -> AgentContext:
     return AgentContext(gateway_url=spec.gateway_url, agent_network=spec.agent_network,
                         pinned_model=spec.pinned_model, identity=spec.identity,
-                        forbidden_secrets=spec.forbidden_secrets, image_id=spec.image_id)
+                        forbidden_secrets=spec.forbidden_secrets, image_id=spec.image_id,
+                        shm_size=spec.shm_size, ipc_mode=spec.ipc_mode)
 
 
 def exec_context(spec: AgentRunSpec) -> ExecContext:
@@ -176,6 +180,8 @@ def build_create_kwargs(spec: AgentRunSpec) -> dict[str, Any]:
         labels={"aiep.run_id": spec.run_id},
         read_only=True,
         tmpfs=tmpfs_for(spec),
+        shm_size=spec.shm_size,
+        ipc_mode=spec.ipc_mode,
     )
     return harden("agent", raw, agent_context(spec))
 

@@ -84,13 +84,21 @@ def spec_for(seed, **over):
 
 
 # ---------------- fakes for the Docker client ----------------
+_SHM_UNITS = {"k": 1024, "m": 1024**2, "g": 1024**3}
+
+
+def shm_bytes(text):  # independent of the policy code under test: "64m" -> 67108864
+    return int(text[:-1]) * _SHM_UNITS[text[-1].lower()] if text[-1].isalpha() else int(text)
+
+
 def good_inspect(spec):
     kw = build_create_kwargs(spec)
     return {
         "Image": spec.image_id or "sha256:" + "a" * 64,
         "HostConfig": {"Privileged": False, "CapAdd": None, "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"],
                        "NetworkMode": spec.agent_network, "Memory": AGENT_MEM_BYTES, "PidsLimit": AGENT_PIDS,
-                       "NanoCpus": AGENT_NANO_CPUS, "ReadonlyRootfs": True, "Binds": None, "Tmpfs": kw["tmpfs"]},
+                       "NanoCpus": AGENT_NANO_CPUS, "ReadonlyRootfs": True, "Binds": None, "Tmpfs": kw["tmpfs"],
+                       "IpcMode": spec.ipc_mode, "ShmSize": shm_bytes(spec.shm_size)},
         "Mounts": [], "Config": {"User": spec.user, "Env": ["ANTHROPIC_AUTH_TOKEN=tok"]},
         "NetworkSettings": {"Networks": {spec.agent_network: {}}},
     }
@@ -651,3 +659,87 @@ def test_agent_spec_requires_identity_and_configuration_without_defaults():
     for name in ("identity", "config_label", "python"):
         assert fields[name].default is dataclasses.MISSING
     assert "user" not in fields and "uid" not in fields  # derived from the identity only
+
+
+# ---------------- /dev/shm and IPC mode: explicit, private, pinned ----------------
+PREVIOUS_CREATE_KEYS = {"cap_drop", "command", "detach", "environment", "image", "labels", "mem_limit", "memswap_limit", "name",
+                        "nano_cpus", "network", "pids_limit", "read_only", "security_opt", "tmpfs", "user", "working_dir"}
+PREVIOUS_TMPFS = {  # exactly what the runner produced before /dev/shm was made explicit (identity 1000:1000, default sizes)
+    "/testbed": "rw,exec,nosuid,nodev,size=192m,uid=1000,gid=1000,mode=0755",
+    "/opt/aiep": "rw,exec,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0755",
+    "/tmp": "rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700",
+    "/home/nonroot": "rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700",
+}
+
+
+def test_default_spec_pins_private_ipc_and_64_mib_and_changes_nothing_else_in_the_create_kwargs(seed):
+    spec = spec_for(seed)
+    assert (spec.shm_size, spec.ipc_mode) == ("64m", "private")
+    kw = build_create_kwargs(spec)
+    assert kw["shm_size"] == "64m" and kw["ipc_mode"] == "private"
+    assert set(kw) - {"shm_size", "ipc_mode"} == PREVIOUS_CREATE_KEYS  # the two new keys are the only additions
+    assert kw["tmpfs"] == PREVIOUS_TMPFS  # the four tmpfs mounts, /tmp still 0700
+    assert kw["read_only"] is True and kw["cap_drop"] == ["ALL"] and kw["security_opt"] == ["no-new-privileges"]
+    assert "cap_add" not in kw and "privileged" not in kw and "volumes" not in kw
+
+
+def test_an_explicit_valid_configuration_runs_the_whole_fake_lifecycle(tmp_path, seed):
+    spec, fs, api, client = rig(tmp_path, seed, agent=edit_agent(), shm_size="32m")
+    assert spec.shm_size == "32m" and api.inspect["HostConfig"]["ShmSize"] == 32 * 1024**2
+    res = go(spec, client)
+    assert res.valid and res.status == STATUS_EXITED and res.removed
+    created = client.created[0]
+    assert created["shm_size"] == "32m" and created["ipc_mode"] == "private" and created["tmpfs"]["/tmp"].endswith("mode=0700")
+
+
+class _NoDocker:
+    """A client that fails loudly if the runner so much as touches it."""
+
+    def __getattr__(self, name):
+        raise AssertionError(f"Docker was used ({name}) although the spec is invalid")
+
+
+@pytest.mark.parametrize("over", [
+    {"shm_size": "0"}, {"shm_size": ""}, {"shm_size": "64mb"}, {"shm_size": "-1m"}, {"shm_size": "1.5g"}, {"shm_size": "64m\n"},
+    {"shm_size": "513m"}, {"shm_size": "1g"}, {"shm_size": None}, {"shm_size": 67108864}, {"shm_size": True},
+    {"ipc_mode": "host"}, {"ipc_mode": "shareable"}, {"ipc_mode": "container:abc"}, {"ipc_mode": "none"}, {"ipc_mode": ""},
+    {"ipc_mode": None}, {"ipc_mode": "PRIVATE"},
+])
+def test_invalid_shm_or_ipc_specs_are_refused_before_any_docker_call(seed, over):
+    spec = spec_for(seed, **over)
+    with pytest.raises(PolicyViolation):
+        build_create_kwargs(spec)
+    with pytest.raises(PolicyViolation):
+        run_agent(_NoDocker(), spec, lambda: None)  # run_agent refuses before it creates anything
+
+
+@pytest.mark.parametrize("field, value", [
+    ("IpcMode", "host"), ("IpcMode", "shareable"), ("IpcMode", "container:abc"), ("IpcMode", "none"), ("IpcMode", ""),
+    ("IpcMode", None), ("ShmSize", 0), ("ShmSize", 64 * 1024**2 + 1), ("ShmSize", 128 * 1024**2), ("ShmSize", None),
+    ("ShmSize", "67108864"), ("ShmSize", True),
+])
+def test_wrong_inspect_shm_or_ipc_blocks_start_and_the_container_is_removed(tmp_path, seed, field, value):
+    spec, fs, api, client = rig(tmp_path, seed)
+    api.inspect["HostConfig"][field] = value
+    with pytest.raises(PolicyViolation):
+        go(spec, client)
+    assert "start" not in client.container.calls and client.container.calls[-1] == "remove(force=True,v=True)"
+    assert api.calls == []  # nothing ran in the container
+
+
+@pytest.mark.parametrize("field", ["IpcMode", "ShmSize"])
+def test_missing_inspect_shm_or_ipc_blocks_start_and_the_container_is_removed(tmp_path, seed, field):
+    spec, fs, api, client = rig(tmp_path, seed)
+    del api.inspect["HostConfig"][field]
+    with pytest.raises(PolicyViolation):
+        go(spec, client)
+    assert "start" not in client.container.calls and client.container.calls[-1] == "remove(force=True,v=True)"
+    assert api.calls == []
+
+
+def test_the_configured_size_not_a_constant_is_what_inspect_is_compared_with(tmp_path, seed):
+    spec, fs, api, client = rig(tmp_path, seed, shm_size="32m")
+    api.inspect["HostConfig"]["ShmSize"] = 64 * 1024**2  # Docker's default instead of the configured 32 MiB
+    with pytest.raises(PolicyViolation, match="ShmSize"):
+        go(spec, client)
+    assert "start" not in client.container.calls

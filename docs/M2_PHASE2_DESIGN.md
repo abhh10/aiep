@@ -1,9 +1,9 @@
 # M2 Phase 2 design: injection-based agent and gateway containers
 
 Status: **Step 0b (local software) is implemented, remediated (see below), committed as 81e0e70 and unit-tested with
-fakes. The agent and gateway lifecycle is NOT Docker-validated: none of the lifecycle code has run against Docker.** One
-disposable inspection container (the conformance probe of 2026-11-19, below) established facts about the existing instance image and
-its `nonroot` account; it did not exercise the lifecycle. Every statement about Docker, Docker Desktop or the images is marked
+fakes. The agent and gateway lifecycle is NOT Docker-validated: none of the lifecycle code has run against Docker.** Two
+disposable inspection containers (the conformance probes of 2026-11-19, below) established facts about the existing instance image,
+its `nonroot` account and the read-only-root and tmpfs layout; neither exercised the lifecycle. Every statement about Docker, Docker Desktop or the images is marked
 *measured*/*probe-verified* (observed) or *unverified* (to be proved in a separately approved Docker step).
 
 ## Maturity legend (used throughout)
@@ -11,8 +11,8 @@ its `nonroot` account; it did not exercise the lifecycle. Every statement about 
 * **Implemented** = the code exists in `src/aiep`.
 * **Fake-tested** = exercised by `tests/` against fakes (socket-pair exec, temporary directories, scripted agent). Nothing in this
   document is Docker-validated.
-* **Probe-verified** = a fact about the existing image or its account observed directly inside one disposable container (section
-  below). This is evidence about the image only, not validation of any lifecycle code.
+* **Probe-verified** = a fact about the existing image, its account or the filesystem layout observed directly inside a disposable
+  container (the probe sections below). This is evidence about the image and the layout only, not validation of any lifecycle code.
 * **Docker-validated** = the lifecycle code proved against a real daemon in an approval-gated step. **Nothing is, yet.**
 
 ## Verified by the Docker conformance probe (2026-11-19)
@@ -39,7 +39,8 @@ removed; resource counts returned to their starting values.
 * **Filesystem, as shipped (before any tmpfs).** `/testbed`: root-owned mode 777, 690 entries all owned 0:0, no symlinks, special files or
   setuid bits, all readable and traversable by `nonroot` (550 entries mode 777, 71 mode 444 git objects, 65 mode 755, 4 mode 644).
   `/opt/miniconda3`: root-owned 755, readable and traversable by `nonroot`, not writable. `/home/nonroot`: owned 1000:1000, mode 750.
-  `/tmp`: 1777. `/opt/aiep` and `/home/agent`: absent.
+  The image's own `/tmp` directory: mode 1777 (an ordinary directory of the image root, **not** an AIEP tmpfs; the AIEP `/tmp` tmpfs
+  is a different object and is mode 0700, see below). `/opt/aiep` and `/home/agent`: absent.
 * **Container security as applied.** Every restriction above was present in `inspect`; from inside, `NoNewPrivs` was 1 and the
   capability sets were empty. With capabilities dropped, root cannot read `/home/nonroot` (mode 750, other owner).
 * **Claude Code is not in the image.** No `node`, `npm` or `claude` exists at any checked path.
@@ -47,19 +48,52 @@ removed; resource counts returned to their starting values.
 
 The verified account and interpreters are recorded in `config/agent_identity.json` (status `verified`).
 
-**Still unverified (the probe did not test these):**
+**Still unverified after both probes (this probe did not test these; the second probe, below, settled part of the list):**
 
 * Claude Code installation and execution in the agent container (its size, libraries and behaviour as this account).
-* The read-only root filesystem and tmpfs behaviour, including a tmpfs mounted over `/home/nonroot` and whether Rosetta and Claude Code
-  tolerate `HOME` on a tmpfs with a read-only root.
-* tmpfs ownership and permissions: the `uid`/`gid`/`mode` options as echoed by `docker inspect`, and `tar -p` extraction as this
-  account into a tmpfs.
-* Exec stdin half-close, and agent quiescence (`kill -KILL -1` as this account).
+* Claude Code's tolerance of the read-only root and a tmpfs `HOME` (the second probe showed Rosetta tolerates it; Claude Code was absent).
+* `/tmp` as a mode-0700 tmpfs specifically: the second probe observed 0700 on the HOME tmpfs and 1777 on `/tmp`, never 0700 on `/tmp`.
+* Injection and verification of the **real** repository seed: the second probe used a synthetic stand-in (see below).
+* Exec stdin half-close as a deliberate experiment (the stand-in injection incidentally finished over exec stdin), and agent
+  quiescence (`kill -KILL -1` as this account).
 * The full real Docker agent lifecycle (create, inject, verify, run, quiesce, extract, remove), and the gateway lifecycle.
 * Integration of the identity configuration into the production runner: `load_agent_config` exists and is tested, but nothing in the
   runner loads it, and nothing yet checks `AgentRunSpec.python` against `verification_python` or `AgentRunSpec.image_id` against the
   verified image ID.
 * The gateway image (`python:3.12-slim` is neither pulled nor pinned).
+
+## Verified by the read-only root and tmpfs conformance probe (2026-11-19, second probe)
+
+One disposable container from the same image ID, run as `1000:1000`, with network none, `--read-only`, all capabilities dropped,
+no-new-privileges, 512 MiB, 1 CPU, 256 pids, no mounts, volumes or ports, and four tmpfs mounts (`/testbed`, `/opt/aiep`, `/tmp`,
+`/home/nonroot`, uid=gid=1000). It was removed afterwards; resource counts returned to their starting values.
+
+**The probe's `/tmp` is not the AIEP `/tmp`.** The probe was instructed to mount `/tmp` with mode 1777 (and to check its sticky bit);
+that was an experiment, not the design. The runner configures `/tmp` as mode **0700** (`agent_runner.tmpfs_for`), and
+`_require_owned_tmpfs` refuses 1777 because it has group and world write bits. Nothing in AIEP relies on the sticky bit. Mode 0700
+on `/tmp` itself was not run in a container (it was observed on the HOME tmpfs, which uses the same mechanism).
+
+**Verified (observed directly):**
+
+* **Read-only root.** `/` is mounted `ro`; all seven write attempts as uid 1000 failed with "Read-only file system", including
+  `/var/tmp` (mode 1777, which permissions alone would allow). `/opt/miniconda3` and every required executable stayed readable
+  and runnable as uid 1000; the Python interpreters ran `-I -c` with standard-library imports.
+* **tmpfs mounts as applied.** Each is `tmpfs`, owned 1000:1000, with the requested mode (755, 755, 1777, 700). `exec` was in effect
+  on `/testbed` and `/opt/aiep` (a probe script ran); `/tmp` and `/home/nonroot` were `noexec`, which Docker applied by default
+  (the runner's strings do not ask for `noexec`; the policy forbids `exec` there). uid 1000 could create, write, read, traverse,
+  chmod and remove files in all four. The sticky bit on the probe's 1777 `/tmp` stopped a second uid from deleting another's file.
+* **`docker inspect`.** `HostConfig.Tmpfs` echoed the four option strings exactly as written, and `Mounts[]` stayed empty (tmpfs mounts
+  appear only under `HostConfig.Tmpfs`), which is what `verify_inspect`'s "no mounts" check relies on.
+* **HOME.** `HOME=/home/nonroot`; Rosetta wrote `/home/nonroot/.cache/rosetta` (owned 1000:1000) into the HOME tmpfs under the
+  read-only root without error.
+* **Injection mechanism, with a synthetic seed.** `parse_seed_archive`, `inject_tar` (over the real exec stdin socket) and
+  `list_tree` + `verify_listing` with the owner check (1000:1000) passed for 690 entries (17.2 MB streamed in 0.35 s): hashes,
+  sizes, modes (462 files 777, 71 files 444, 4 files 644), the symlink target and ownership all matched. **The seed was a stand-in:**
+  the real tree's paths, types, modes and sizes, with synthetic file contents, because a tmpfs over `/testbed` hides the image's own
+  `/testbed` (observed: 0 entries inside the container). It validates the mechanism, not the real repository bytes.
+* **Memory accounting.** tmpfs pages are charged to the container's cgroup: `shmem` was 18.2 MB for 17.8 MB used.
+* **`/dev/shm`.** Docker added its own mount: `rw,nosuid,nodev,noexec,relatime - tmpfs shm rw,size=65536k`, with `HostConfig.ShmSize`
+  67108864 and `IpcMode` `private`, none of which was configured, and no `ShmSize`/`IpcMode` in our requests. See "/dev/shm" below.
 
 ## Remediation 2 (identity, environment, gateway image, lifecycle): implemented and fake-tested only
 
@@ -195,10 +229,36 @@ stdin into tmpfs mounts.
 | `/` | read-only image root | the pinned instance image | n/a | n/a |
 | `/testbed` | tmpfs, owned by the verified identity | the repository seed, the agent's workspace | yes | 192m (seed is 17.4 MiB measured) |
 | `/opt/aiep` | tmpfs, owned by the verified identity | Claude Code binary and its files | yes | 256m (binary size unmeasured) |
-| `/tmp`, `<identity.home>` = `/home/nonroot` (the verified home; the tmpfs over it is unverified) | tmpfs, owned by the identity, mode 0700 | scratch, Claude state | no | 128m each |
+| `/tmp`, `<identity.home>` = `/home/nonroot` (the verified home) | tmpfs, owned by the identity, mode 0700 | scratch, Claude state | no | 128m each |
+| `/dev/shm` | Docker's per-container tmpfs, **private IPC**, size pinned by `AgentRunSpec.shm_size` | POSIX shared memory and semaphores (for example Python `multiprocessing` locks) | no (`noexec`) | 64m |
 
-Policy caps: 512 MiB per mount and 1 GiB in total (all of it counts against the 2 GiB memory limit).
-PID 1 is `/bin/sleep 2147483647`; the policy refuses any other command.
+Policy caps: 512 MiB per mount, and 1 GiB in total for the four tmpfs mounts plus `/dev/shm` (all of it counts against the 2 GiB memory
+limit). The defaults add up to **768 MiB** (192 + 256 + 128 + 128 + 64): that is the sum of the configured *capacities*, an upper bound on
+what the mounts can hold, **not measured memory usage** (the stand-in seed used 17.8 MiB of `/testbed`, and the whole container's
+`memory.current` was 81 MB after injection). PID 1 is `/bin/sleep 2147483647`; the policy refuses any other command.
+
+### /dev/shm: private IPC and an explicit 64 MiB size
+
+Docker mounts a private `/dev/shm` tmpfs into every container with a private IPC namespace. It stays writable under a read-only root
+(its mount flags were `rw`; no write to it was attempted) and it is **not** part of `HostConfig.Tmpfs` or `Mounts[]`, so it is a
+fifth writable location beside the four AIEP tmpfs mounts. It is neither disabled nor made read-only: a missing or read-only
+`/dev/shm` would break Python `multiprocessing` locks, which use glibc POSIX semaphores. It is configured explicitly instead:
+
+* `AgentContext` and `AgentRunSpec` carry `ipc_mode` (only `"private"` is valid; host, shareable, container and none IPC are refused)
+  and `shm_size` (default `"64m"`, Docker's observed default, now pinned so a daemon default cannot change it). `shm_size` is strict: a
+  string of at most 16 ASCII digits with an optional `k`/`m`/`g`, above zero and within the per-mount cap; numbers, booleans, signs,
+  decimals, spaces, trailing newlines and other digit scripts are refused.
+* `harden` requires both keys in the create request, exactly equal to the trusted context (never defaulted from a missing key and never
+  normalised, so `"65536k"` is not accepted for `"64m"`), and passes them to Docker as `shm_size` and `ipc_mode`.
+* `verify_inspect` requires `HostConfig.IpcMode` to equal the configured mode and `HostConfig.ShmSize` to be an integer equal to the
+  configured size in bytes; a missing, malformed or different value fails closed, and the container is removed without starting.
+  The role-wide refusal of host IPC for every role is unchanged.
+* The size shares the total cap with the tmpfs mounts, at create and at inspect.
+* `/dev/shm` cannot be configured through the `tmpfs` mapping (the path is not allowed); the four tmpfs policies are unchanged.
+
+*Not yet verified against real Docker:* that Docker applies the pinned size to the mount (the policy checks `inspect`, not the mount's
+`size=`), the owner and mode of `/dev/shm`, that a write to it succeeds under the read-only root, and what Claude Code and the benchmark
+tests need from it. The gateway container still gets Docker's default `/dev/shm` and is not covered by this policy.
 
 ## Injection and verification sequence (orchestrator, outside the container)
 
@@ -226,14 +286,15 @@ re-verifies tar and manifest -> in-container verification against the same manif
   and no capability (all are dropped).
 * Because the extracting user is not root, ownership comes from the mount, not the tar (root-owned
   entries in the injection tar are written as the agent account, uid 1000). Modes come from the tar.
-* Nothing writes outside the four tmpfs paths: the exec policy limits `tar` destinations to
+* The writable locations are the four AIEP tmpfs mounts (`/testbed`, `/opt/aiep`, `/tmp`, HOME) **and** Docker's private `/dev/shm`
+  (64 MiB, `noexec`, `nosuid`, `nodev`); everything else is on the read-only root. The exec policy limits `tar` destinations to
   `/testbed`, `/opt/aiep` and (gateway) `/opt/aiep-gw` and `/tmp/aiep`.
 * The agent can modify everything it owns, including the injected Claude binary. That does not
   matter after the start, and the orchestrator never executes anything from a tmpfs for its own
   purposes (extraction runs `/usr/bin/git` from the read-only root).
-* *Unverified:* that tmpfs `uid`/`gid`/`mode` options and non-root `tar -p` behave as designed on Docker
-  Desktop, and that `HostConfig.Tmpfs` appears in `inspect` as the policy expects. (The probe observed the image's own file ownership and
-  modes, not tmpfs mounts.)
+* *Verified by the second probe:* the tmpfs `uid`/`gid`/`mode` options take effect on Docker Desktop, `HostConfig.Tmpfs` echoes them
+  verbatim, and non-root `tar -p` extraction into a tmpfs preserved modes, the symlink and the mount's ownership (with a synthetic seed).
+  *Still unverified:* extraction of the real seed, and `/tmp` at mode 0700 (see above).
 
 ## Lifecycle after start
 
@@ -298,14 +359,15 @@ be re-run inside the image as a conformance check.
    the Docker conformance probe"); the per-run identity probe still re-checks it before anything is injected and fails the run on any
    mismatch. Claude Code's installation, libraries and behaviour with this account are unverified.
 4. **Persistence:** tmpfs content dies with the container; there is no snapshotting.
-5. **Docker behaviours unverified:** the gateway image's availability, digest, Python path/version and entrypoint handling, tmpfs
-   `uid`/`gid`/`mode` appearing in `inspect` exactly as written (the policy compares option strings; Docker
-   may normalise them), a non-root uid executing Python from tmpfs, `user="uid:gid"` for create (exec with `-u 1000:1000` is probe-verified), hijacked exec sockets on Docker Desktop, stdin half-close,
-   quiesce semantics, tmpfs option handling, anonymous-volume neutralisation.
+5. **Docker behaviours unverified:** the gateway image's availability, digest, Python path/version and entrypoint handling, a
+   non-root uid executing Python from a tmpfs (a shell script ran from the exec tmpfs; Python ran from the root), stdin half-close as a
+   deliberate test (the stand-in injection finished over exec stdin, and the hijacked exec socket worked), quiesce semantics, the
+   pinned `/dev/shm` size actually applying to the mount, and anonymous-volume neutralisation. Verified: `user="1000:1000"` for create and
+   exec, and tmpfs option strings appearing in `inspect` exactly as written.
 6. **Tests are simulations:** the fake daemon uses real socket pairs, real `tar`/git/python on temporary
    directories and a scripted fake agent, but nothing exercises real Docker.
 
-## Operations that remain approval-gated (only the read-only inventory and the single conformance probe have been performed)
+## Operations that remain approval-gated (only the read-only inventory and the two conformance probes have been performed)
 
 1. Create (not start) one pristine instance container and `get_archive` `/testbed` to produce the seed.
 2. Create the two Docker networks (`--internal` agent network, egress network).

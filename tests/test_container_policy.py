@@ -59,6 +59,8 @@ def agent_kwargs(**over):
         network="aiep-agent-net",
         read_only=True,
         tmpfs=agent_tmpfs(),
+        shm_size="64m",
+        ipc_mode="private",
         working_dir="/testbed",
         environment={
             "ANTHROPIC_BASE_URL": "http://gateway:8080",
@@ -237,6 +239,7 @@ def good_agent_inspect():
             "SecurityOpt": ["no-new-privileges"], "NetworkMode": "aiep-agent-net",
             "Memory": 2 * 1024**3, "PidsLimit": 512, "NanoCpus": 2_000_000_000,
             "ReadonlyRootfs": True, "Binds": None, "Tmpfs": agent_tmpfs(),
+            "IpcMode": "private", "ShmSize": 64 * 1024**2,
         },
         "Mounts": [],
         "Config": {"User": IDENT.user, "Env": ["ANTHROPIC_AUTH_TOKEN=t"]},
@@ -824,3 +827,220 @@ def test_account_names_are_only_checked_for_safe_characters_not_for_a_convention
     for name in ("", "root", "a b", "a:b", "-x", ".x", "a\n", "x" * 65, None):
         with pytest.raises(PolicyViolation):
             AgentIdentity(name=name, uid=5, gid=5, home="/home/h")
+
+
+# ---------------- /dev/shm and IPC mode: explicit, private, pinned ----------------
+from aiep.container_policy import (AGENT_ALLOWED_IPC_MODES, AGENT_IPC_MODE, AGENT_SHM_DEFAULT,  # noqa: E402
+                                   TMPFS_MAX_TOTAL_BYTES, _require_owned_tmpfs, validate_shm_size)
+
+MIB = 1024**2
+
+
+def shm_ctx(**over):
+    d = dict(gateway_url="http://gateway:8080", agent_network="aiep-agent-net", pinned_model=MODEL, identity=IDENT)
+    d.update(over)
+    return AgentContext(**d)
+
+
+def sized_tmpfs(testbed="64m", aiep="64m", tmp="64m", home="64m"):
+    """The four tmpfs mounts with chosen sizes (modes and ownership as in the runner)."""
+    return {"/tmp": f"rw,nosuid,nodev,size={tmp},{OWN},mode=0700", IDENT.home: f"rw,nosuid,nodev,size={home},{OWN},mode=0700",
+            "/testbed": f"rw,exec,nosuid,nodev,size={testbed},{OWN},mode=0755",
+            "/opt/aiep": f"rw,exec,nosuid,nodev,size={aiep},{OWN},mode=0755"}
+
+
+def test_the_defaults_are_private_ipc_and_exactly_64_mib():
+    assert AGENT_IPC_MODE == "private" and AGENT_ALLOWED_IPC_MODES == frozenset({"private"})
+    assert AGENT_SHM_DEFAULT == "64m" and validate_shm_size(AGENT_SHM_DEFAULT) == 64 * MIB == 67108864
+    ctx = shm_ctx()
+    assert (ctx.shm_size, ctx.ipc_mode) == ("64m", "private") == (CTX.shm_size, CTX.ipc_mode)
+
+
+@pytest.mark.parametrize("size, expected", [("1", 1), ("1k", 1024), ("64m", 64 * MIB), ("64M", 64 * MIB), ("064m", 64 * MIB),
+                                            ("65536k", 64 * MIB), ("512m", 512 * MIB), ("524288k", 512 * MIB), ("1048576", MIB)])
+def test_valid_explicit_sizes(size, expected):
+    assert validate_shm_size(size) == expected
+    assert shm_ctx(shm_size=size).shm_size == size
+
+
+INVALID_SIZES = ["", "0", "0m", "00k", "-1m", "+64m", "1.5g", "64mb", "64 m", " 64m", "64m ", "64m\n", "\n64m", "m", "k", "abc",
+                 "0x40", "6e1m", "٦٤m", "６４m",  # Arabic-Indic and full-width digits
+                 "1" * 17 + "m", "513m", "1g", "524289k", "9999999999999999g",
+                 "9" * 5000 + "m", "9" * 5000,  # absurdly long: int() itself would raise ValueError here, not PolicyViolation
+                 None, 64, 64.0, True, ["64m"], b"64m"]
+
+
+@pytest.mark.parametrize("bad", INVALID_SIZES, ids=[repr(b)[:24] for b in INVALID_SIZES])
+def test_invalid_shm_sizes_are_refused_everywhere(bad):
+    with pytest.raises(PolicyViolation):
+        validate_shm_size(bad)
+    with pytest.raises(PolicyViolation):
+        shm_ctx(shm_size=bad)  # a context cannot even be built from it
+    with pytest.raises(PolicyViolation):
+        harden("agent", agent_kwargs(shm_size=bad), CTX)  # nor can a create request carry it
+
+
+INVALID_IPC = ["host", "shareable", "container:abc123", "container:", "none", "", "PRIVATE", "Private", "private ", "private\n",
+               " private", None, True, 0, ["private"], {"private": 1}]
+
+
+@pytest.mark.parametrize("bad", INVALID_IPC, ids=[repr(b)[:24] for b in INVALID_IPC])
+def test_only_private_ipc_is_accepted_in_a_context_and_in_a_create_request(bad):
+    with pytest.raises(PolicyViolation):
+        shm_ctx(ipc_mode=bad)
+    with pytest.raises(PolicyViolation):
+        harden("agent", agent_kwargs(ipc_mode=bad), CTX)
+
+
+def test_create_kwargs_carry_exactly_the_configured_values_and_nothing_else_changes():
+    out = harden("agent", agent_kwargs(), CTX)
+    assert out["shm_size"] == "64m" and out["ipc_mode"] == "private"
+    baseline = set(agent_kwargs()) | {"cap_drop", "security_opt", "mem_limit", "memswap_limit", "pids_limit", "nano_cpus", "labels"}
+    assert set(out) == baseline  # no new capability, device, volume, privilege or network key appeared
+    assert out["cap_drop"] == ["ALL"] and out["security_opt"] == ["no-new-privileges"] and out["read_only"] is True
+    assert "cap_add" not in out and "privileged" not in out and "volumes" not in out
+    assert out["tmpfs"] == agent_tmpfs()  # the four tmpfs mounts are exactly as before
+
+
+def test_a_valid_explicit_configuration_round_trips_through_create_and_inspect():
+    ctx = shm_ctx(shm_size="32m")
+    out = harden("agent", agent_kwargs(shm_size="32m"), ctx)
+    assert out["shm_size"] == "32m"
+    info = good_agent_inspect()
+    info["HostConfig"]["ShmSize"] = 32 * MIB
+    verify_inspect("agent", info, ctx)
+    with pytest.raises(PolicyViolation):  # the same inspect does not satisfy a context that expects 64 MiB
+        verify_inspect("agent", info, CTX)
+
+
+def test_both_settings_must_be_given_explicitly_never_defaulted_from_a_missing_key():
+    for missing in ("shm_size", "ipc_mode"):
+        kw = agent_kwargs()
+        del kw[missing]
+        with pytest.raises(PolicyViolation, match=missing):
+            harden("agent", kw, CTX)
+
+
+@pytest.mark.parametrize("kwargs_size, ctx_size", [("32m", "64m"), ("128m", "64m"), ("65536k", "64m"), ("67108864", "64m"),
+                                                     ("64m", "32m")])
+def test_the_request_must_equal_the_trusted_context_exactly(kwargs_size, ctx_size):
+    with pytest.raises(PolicyViolation, match="shm_size"):
+        harden("agent", agent_kwargs(shm_size=kwargs_size), shm_ctx(shm_size=ctx_size))
+
+
+def test_unknown_create_kwargs_are_still_refused_so_shm_and_ipc_are_the_only_additions():
+    for extra in ({"shm_size_bytes": 1}, {"ipc": "private"}, {"cap_add": ["SYS_ADMIN"]}, {"pid_mode": "host"}, {"ipcmode": "host"}):
+        with pytest.raises(PolicyViolation):
+            harden("agent", agent_kwargs(**extra), CTX)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("IpcMode", "host"), ("IpcMode", "shareable"), ("IpcMode", "container:abc123"), ("IpcMode", "none"), ("IpcMode", ""),
+    ("IpcMode", None), ("IpcMode", "PRIVATE"), ("IpcMode", ["private"]), ("IpcMode", 1), ("IpcMode", "private "),
+    ("ShmSize", 0), ("ShmSize", -1), ("ShmSize", 64 * MIB + 1), ("ShmSize", 64 * MIB - 1), ("ShmSize", 32 * MIB),
+    ("ShmSize", 128 * MIB), ("ShmSize", None), ("ShmSize", "67108864"), ("ShmSize", "64m"), ("ShmSize", 67108864.0),
+    ("ShmSize", [67108864]), ("ShmSize", True),
+])
+def test_wrong_or_malformed_inspect_values_fail_closed(field, value):
+    info = good_agent_inspect()
+    info["HostConfig"][field] = value
+    with pytest.raises(PolicyViolation, match=f"{field}|host IPC"):  # host IPC is also caught earlier by the role-wide check
+        verify_inspect("agent", info, CTX)
+
+
+@pytest.mark.parametrize("field", ["IpcMode", "ShmSize"])
+def test_missing_inspect_fields_fail_closed(field):
+    info = good_agent_inspect()
+    del info["HostConfig"][field]
+    with pytest.raises(PolicyViolation, match=field):
+        verify_inspect("agent", info, CTX)
+    info = good_agent_inspect()
+    del info["HostConfig"]  # no host config at all
+    with pytest.raises(PolicyViolation):
+        verify_inspect("agent", info, CTX)
+
+
+def test_a_boolean_is_not_accepted_as_an_integer_shm_size():
+    ctx = shm_ctx(shm_size="1")  # one byte, so that True == 1 would otherwise pass an equality check
+    info = good_agent_inspect()
+    info["HostConfig"]["ShmSize"] = 1
+    verify_inspect("agent", info, ctx)
+    info["HostConfig"]["ShmSize"] = True
+    with pytest.raises(PolicyViolation, match="ShmSize"):
+        verify_inspect("agent", info, ctx)
+
+
+def test_host_ipc_is_refused_for_every_role_and_other_ipc_modes_for_the_agent():
+    info = good_agent_inspect()
+    info["HostConfig"]["IpcMode"] = "host"
+    with pytest.raises(PolicyViolation):  # refused by the agent check and by the role-wide host-IPC check alike
+        verify_inspect("agent", info, CTX)
+    ev = good_eval_inspect()
+    ev["HostConfig"]["IpcMode"] = "host"
+    with pytest.raises(PolicyViolation, match="host IPC"):
+        verify_inspect("evaluator", ev)
+    gw = good_gw_inspect()
+    gw["HostConfig"]["IpcMode"] = "host"
+    with pytest.raises(PolicyViolation, match="host IPC"):
+        verify_inspect("gateway", gw, GCTX)
+    for ok in (good_eval_inspect(), good_gw_inspect()):
+        assert "IpcMode" not in ok["HostConfig"]  # the evaluator and gateway are not required to carry the new fields
+
+
+def test_tmpfs_and_shm_share_the_total_memory_cap_at_create_and_at_inspect():
+    assert TMPFS_MAX_TOTAL_BYTES == 1024 * MIB
+    tmpfs = sized_tmpfs(testbed="512m", aiep="256m", tmp="128m", home="64m")  # 960 MiB of tmpfs
+    harden("agent", agent_kwargs(tmpfs=tmpfs), CTX)  # + 64 MiB shm = 1024 MiB: exactly the cap
+    info = good_agent_inspect()
+    info["HostConfig"]["Tmpfs"] = tmpfs
+    verify_inspect("agent", info, CTX)
+    over = shm_ctx(shm_size="65m")  # 1025 MiB
+    with pytest.raises(PolicyViolation, match="total cap"):
+        harden("agent", agent_kwargs(tmpfs=tmpfs, shm_size="65m"), over)
+    info["HostConfig"]["ShmSize"] = 65 * MIB
+    with pytest.raises(PolicyViolation, match="total cap"):
+        verify_inspect("agent", info, over)
+
+
+def test_the_runner_defaults_total_768_mib_of_configured_capacity_well_under_the_cap():
+    total = 192 + 256 + 128 + 128 + 64  # testbed + aiep + tmp + home + shm: configured capacities, not measured usage
+    assert total == 768 and total * MIB < TMPFS_MAX_TOTAL_BYTES
+
+
+def test_dev_shm_cannot_be_configured_through_the_tmpfs_mapping_and_the_four_mounts_are_unchanged():
+    extra = {**agent_tmpfs(), "/dev/shm": f"rw,nosuid,nodev,size=64m,{OWN},mode=0700"}
+    with pytest.raises(PolicyViolation, match="not allowed|exactly"):
+        harden("agent", agent_kwargs(tmpfs=extra), CTX)
+    info = good_agent_inspect()
+    info["HostConfig"]["Tmpfs"] = extra
+    with pytest.raises(PolicyViolation):
+        verify_inspect("agent", info, CTX)
+    assert set(agent_tmpfs_rules(IDENT)) == {"/tmp", "/testbed", "/opt/aiep", "/home/nonroot"}
+
+
+@pytest.mark.parametrize("mode", ["0700", "0750", "0755", "0705", "1700", "700", "755"])
+def test_owned_tmpfs_accepts_owner_rwx_without_group_or_world_write(mode):
+    _require_owned_tmpfs({"/tmp": f"rw,uid=1000,gid=1000,mode={mode}"}, 1000, 1000, "agent")
+
+
+@pytest.mark.parametrize("mode", ["1777", "0777", "0770", "0775", "0757", "0722", "0500", "0600", "0400", "", "07000", "7"])
+def test_owned_tmpfs_refuses_group_or_world_write_and_owners_without_rwx_and_missing_modes(mode):
+    opts = "rw,uid=1000,gid=1000" + (f",mode={mode}" if mode else "")
+    with pytest.raises(PolicyViolation):
+        _require_owned_tmpfs({"/tmp": opts}, 1000, 1000, "agent")
+
+
+def test_tmp_stays_mode_0700_and_1777_is_still_refused():
+    assert agent_tmpfs()["/tmp"].endswith("mode=0700")
+    harden("agent", agent_kwargs(), CTX)
+    bad = agent_tmpfs()
+    bad["/tmp"] = bad["/tmp"].replace("mode=0700", "mode=1777")
+    with pytest.raises(PolicyViolation, match="group- or world-writable"):
+        harden("agent", agent_kwargs(tmpfs=bad), CTX)
+
+
+def test_the_owned_tmpfs_docstring_describes_what_the_check_really_enforces():
+    doc = _require_owned_tmpfs.__doc__
+    assert "07x0" not in doc and "private to its owner" not in doc  # the old, inaccurate wording
+    for phrase in ("group nor others write", "0755", "0700", "1777", "special bits"):
+        assert phrase in doc, phrase

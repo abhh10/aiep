@@ -75,6 +75,14 @@ AGENT_WORKDIR = "/testbed"
 AGENT_FIXED_TMPFS_RULES = {"/tmp": False, "/testbed": True, "/opt/aiep": True}  # the HOME tmpfs is per identity
 TMPFS_MAX_EACH_BYTES = 512 * 1024**2
 TMPFS_MAX_TOTAL_BYTES = 1 * GIB
+# /dev/shm. Docker gives every container its own writable tmpfs there (POSIX shared memory and semaphores), even with a read-only
+# root and outside ``HostConfig.Tmpfs``. It is neither disabled nor made read-only (that would break multiprocessing locks); it
+# is configured explicitly instead: a private IPC namespace (no host, shareable or container IPC) and a pinned size, which is
+# the 64 MiB Docker's default was observed to be. Its size counts against memory like any tmpfs, so it shares their total cap.
+AGENT_IPC_MODE = "private"
+AGENT_ALLOWED_IPC_MODES = frozenset({AGENT_IPC_MODE})
+AGENT_SHM_DEFAULT = "64m"
+_SHM_SIZE_RE = re.compile(r"[0-9]{1,16}[kKmMgG]?")
 
 # Gateway (holds the real API key; reached by the agent over the internal network).
 GATEWAY_MEM = "256m"
@@ -124,7 +132,7 @@ _EVAL_ALLOWED_IN = frozenset({"image", "command", "name", "user", "detach", "cap
 _AGENT_ALLOWED_IN = frozenset(
     {
         "image", "command", "name", "user", "detach", "environment", "working_dir",
-        "network", "labels", "read_only", "tmpfs", "cap_drop", "security_opt",
+        "network", "labels", "read_only", "tmpfs", "cap_drop", "security_opt", "shm_size", "ipc_mode",
     }
 )
 
@@ -138,6 +146,30 @@ def _parse_size(text: str) -> int:
     if not m:
         raise PolicyViolation(f"tmpfs size {text!r} is not a plain size like 256m")
     return int(m.group(1)) * {"": 1, "k": 1024, "m": 1024**2, "g": GIB}[m.group(2).lower()]
+
+
+def validate_shm_size(value: Any) -> int:
+    """The size in bytes of a valid ``/dev/shm`` setting, or PolicyViolation.
+
+    Strict on purpose: a string of ASCII digits with an optional k/m/g unit (``"64m"``), at most 16 digits, greater than zero and
+    no larger than the per-mount tmpfs cap. Anything else (numbers, booleans, ``None``, signs, decimals, spaces, trailing
+    newlines, other digit scripts, ``"64mb"``) is refused rather than normalised.
+    """
+    _require(isinstance(value, str) and _SHM_SIZE_RE.fullmatch(value) is not None,
+             f"agent: shm_size {value!r} is not a plain size like '64m'")
+    unit = value[-1].lower() if value[-1].isalpha() else ""
+    size = int(value[:-1] if unit else value) * {"": 1, "k": 1024, "m": 1024**2, "g": GIB}[unit]
+    _require(0 < size <= TMPFS_MAX_EACH_BYTES, f"agent: shm_size {value!r} must be above zero and at most the per-mount cap")
+    return size
+
+
+def _tmpfs_total_bytes(mapping: Mapping[str, Any]) -> int:
+    """Sum of the ``size=`` options of an already validated tmpfs mapping."""
+    total = 0
+    for opts in mapping.values():
+        values = dict(tok.split("=", 1) for tok in str(opts).split(",") if "=" in tok)
+        total += _parse_size(values["size"])
+    return total
 
 
 def validate_tmpfs(mapping: Mapping[str, Any], *, creating: bool,
@@ -256,9 +288,14 @@ class AgentContext:
     identity: AgentIdentity  # required: there is no default identity
     forbidden_secrets: tuple[str, ...] = field(default_factory=tuple)  # never allowed anywhere
     image_id: str | None = None  # if set, the created container must come from exactly this image ID
+    shm_size: str = AGENT_SHM_DEFAULT  # the pinned size of /dev/shm; the create request and inspect must both match it
+    ipc_mode: str = AGENT_IPC_MODE  # only "private" exists: no host, shareable, container or none
 
     def __post_init__(self) -> None:
         _require(isinstance(self.identity, AgentIdentity), "agent: an AgentIdentity is required")
+        validate_shm_size(self.shm_size)
+        _require(isinstance(self.ipc_mode, str) and self.ipc_mode in AGENT_ALLOWED_IPC_MODES,
+                 f"agent: ipc_mode must be one of {sorted(AGENT_ALLOWED_IPC_MODES)} (never host, shareable or container IPC)")
 
 
 def validate_interpreter_path(path: Any, what: str = "interpreter") -> str:
@@ -278,7 +315,15 @@ def validate_interpreter_path(path: Any, what: str = "interpreter") -> str:
 
 
 def _require_owned_tmpfs(mapping: Mapping[str, Any], uid: int, gid: int, role: str) -> None:
-    """Every tmpfs must be created owned by exactly ``uid:gid`` and private to its owner (mode 07x0 or tighter)."""
+    """Every tmpfs must be owned by exactly ``uid:gid`` and carry an explicit octal mode that gives its owner rwx and gives
+    neither group nor others write permission.
+
+    That is all this function enforces. Group and others may still have read and/or execute (``0755`` is accepted, and is what
+    ``/testbed`` and ``/opt/aiep`` use; ``0700`` is what ``/tmp`` and HOME use), and the special bits (setuid, setgid, sticky)
+    are not examined here. ``1777`` and any other mode with a group- or world-write bit is refused. Whether such a mount is
+    private in practice rests on the container having a single user (and ``nosuid``, checked in ``validate_tmpfs``), not on
+    this check.
+    """
     for path, opts in mapping.items():
         values = dict(tok.split("=", 1) for tok in str(opts).split(",") if "=" in tok)
         _require(values.get("uid") == str(uid) and values.get("gid") == str(gid),
@@ -389,6 +434,12 @@ def _harden_agent(kwargs: Mapping[str, Any], ctx: AgentContext) -> dict:
     validate_tmpfs(out.get("tmpfs") or {}, creating=True, rules=rules)
     _require(set(out.get("tmpfs") or {}) == set(rules), f"agent: tmpfs must be exactly {sorted(rules)}")
     _require_owned_tmpfs(out.get("tmpfs") or {}, ctx.identity.uid, ctx.identity.gid, "agent")
+    # /dev/shm: explicit, never defaulted from a missing key and never normalised
+    _require(out.get("ipc_mode") == ctx.ipc_mode,
+             f"agent: ipc_mode must be given explicitly and be exactly {ctx.ipc_mode!r} (private IPC only)")
+    _require(out.get("shm_size") == ctx.shm_size, f"agent: shm_size must be given explicitly and be exactly {ctx.shm_size!r}")
+    _require(_tmpfs_total_bytes(out.get("tmpfs") or {}) + validate_shm_size(ctx.shm_size) <= TMPFS_MAX_TOTAL_BYTES,
+             "agent: tmpfs plus /dev/shm exceed the total cap (they count against memory)")
     env = dict(out.get("environment") or {})
     _require(env.get("HOME") == ctx.identity.home, f"agent: HOME must be the identity's home {ctx.identity.home!r}")
     _check_agent_env(env, ctx)
@@ -598,6 +649,13 @@ def verify_inspect(role: str, inspect: Mapping[str, Any], ctx: Any = None) -> No
         validate_tmpfs(host.get("Tmpfs") or {}, creating=False, rules=rules)
         _require(set(host.get("Tmpfs") or {}) == set(rules), f"agent: tmpfs must be exactly {sorted(rules)}")
         _require_owned_tmpfs(host.get("Tmpfs") or {}, ctx.identity.uid, ctx.identity.gid, "agent")
+        # /dev/shm as Docker actually applied it: both fields must be present, of the right type and exactly as configured
+        ipc, shm = host.get("IpcMode"), host.get("ShmSize")
+        _require(isinstance(ipc, str) and ipc == ctx.ipc_mode, f"agent: IpcMode is {ipc!r}, must be {ctx.ipc_mode!r}")
+        want_shm = validate_shm_size(ctx.shm_size)
+        _require(type(shm) is int and shm == want_shm, f"agent: ShmSize is {shm!r}, must be {want_shm} bytes")
+        _require(_tmpfs_total_bytes(host.get("Tmpfs") or {}) + shm <= TMPFS_MAX_TOTAL_BYTES,
+                 "agent: tmpfs plus /dev/shm exceed the total cap (they count against memory)")
         if ctx.image_id is not None:
             _require(inspect.get("Image") == ctx.image_id, "agent: container is not from the expected image ID")
         nets = set(((inspect.get("NetworkSettings") or {}).get("Networks") or {}).keys() or {ctx.agent_network})
