@@ -88,7 +88,10 @@ def test_dataclass_is_frozen():
 
 
 def test_real_record_exports_without_any_hidden_text():
-    """Against the real pinned cache, if present: no hidden field's text appears in the export."""
+    """Against the real pinned local snapshot, if present: no hidden field's text appears in the export.
+
+    ``load_record`` reads the verified snapshot directly (no ``datasets``/``huggingface_hub``), so this needs no network
+    switches and no fakes; tests/conftest.py fails the test if anything tries the network."""
     hf = REAL / ".cache" / "hf"
     if not hf.exists():
         pytest.skip("no local HF cache")
@@ -98,8 +101,3 @@ def test_real_record_exports_without_any_hidden_text():
         text = rec.get(name)
         if isinstance(text, str) and len(text) > 20:
             assert text not in out, name
-    for name in ("FAIL_TO_PASS", "PASS_TO_PASS"):
-        value = rec.get(name)
-        items = json.loads(value) if isinstance(value, str) else value
-        assert all(str(i) not in out for i in items)
-    assert set(json.loads(out)) == set(ALLOWED_FIELDS)

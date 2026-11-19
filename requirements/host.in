@@ -2,5 +2,7 @@
 # pyproject.toml [project].dependencies must be a subset of this file (tested).
 # Evaluator build dependencies live ONLY in config/wheelhouse.json.
 swebench==5.0.2
+# read directly by aiep.task_input (the pinned local dataset snapshot is parsed without datasets/huggingface_hub)
+pyarrow==26.0.1
 # dev
 pytest

@@ -5,6 +5,7 @@ description = "Local harness for evaluating coding agents on SWE-bench Lite task
 requires-python = ">=3.10"
 dependencies = [
     "swebench==5.0.2",
+    "pyarrow==26.0.1",
 ]
 
 [dependency-groups]

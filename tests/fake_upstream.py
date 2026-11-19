@@ -102,6 +102,13 @@ class Handler(BaseHTTPRequestHandler):
                 super().finish()
             except OSError:
                 pass
+            finally:
+                # setup() swapped self.request for the TLS-wrapped socket; socketserver only closes the
+                # original object it handed us (already detached by wrap_socket), so close ours here.
+                try:
+                    self.request.close()
+                except OSError:
+                    pass
 
     def _go(self):
         n = int(self.headers.get("Content-Length") or 0)

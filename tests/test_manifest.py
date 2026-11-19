@@ -92,6 +92,7 @@ def test_build_manifest_makes_no_network_call(tmp_path, monkeypatch):
     assert m["wheelhouse"]["status"] == "unpopulated"
     assert "src/aiep/a.py" in m["files"] and "requirements/host.lock" in m["files"]
     assert m["versions"]["swebench"] == "5.0.2"
+    assert m["versions"]["pyarrow"] == "26.0.1"  # the library that reads task records is recorded too
 
 
 def test_dirty_tree_is_flagged_untracked_is_counted_separately(tmp_path):

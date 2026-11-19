@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Mapping
 
-from .manifest import ManifestError, load_dataset_config, offline_env, verify_dataset_snapshot
+from .manifest import ManifestError, load_dataset_config, read_verified_split, verify_dataset_snapshot
 
 MAX_PROBLEM_CHARS = 200_000
 _INSTANCE_RE = re.compile(r"^[A-Za-z0-9_.\-]+__[A-Za-z0-9_.\-]+-\d+$")
@@ -61,20 +61,34 @@ def export_task_input(record: Mapping[str, Any]) -> TaskInput:
 
 
 def load_record(instance_id: str, hf_home: Path, repo_root: Path | None = None) -> dict:
-    """Load one full record (host side only) from the pinned, offline dataset cache.
+    """Load one full record (host side only) from the pinned, verified local dataset snapshot.
 
-    The returned dict contains hidden fields; pass it only to ``export_task_input``
-    or to evaluator-side code, never to an agent.
+    Strictly local. The configured revision must equal the cache's ``refs/main`` and its snapshot directory must
+    exist (``verify_dataset_snapshot``); the split's parquet file must be the single file of its name and match its
+    content-addressed blob name and stay inside this repository's cache (``read_verified_split``, which reads the bytes once
+    and hashes those same bytes); the record is then parsed from those bytes with ``pyarrow``. ``datasets`` and ``huggingface_hub`` are neither imported nor called, so there is no hub resolution, no
+    dataset-viewer request and no retry, whatever was imported earlier in the process, and no environment variable has to be
+    set first. Any missing or invalid piece raises ``ManifestError``; there is no fallback.
+
+    The returned dict contains hidden fields; pass it only to ``export_task_input`` or to evaluator-side code,
+    never to an agent.
     """
-    import os
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     cfg = load_dataset_config(repo_root) if repo_root else load_dataset_config()
-    verify_dataset_snapshot(hf_home, cfg)
-    os.environ.update(offline_env())
-    from datasets import load_dataset  # imported late so the offline env is set first
-
-    ds = load_dataset(cfg["repo_id"], split=cfg["split"], cache_dir=str(Path(hf_home) / "datasets"))
-    matches = [r for r in ds if r["instance_id"] == instance_id]
-    if len(matches) != 1:
-        raise ManifestError(f"expected exactly one record for {instance_id}, found {len(matches)}")
-    return dict(matches[0])
+    snapshot = verify_dataset_snapshot(hf_home, cfg)
+    data = read_verified_split(snapshot, cfg["split"], cfg["revision"])  # read once; the parsed bytes are the hashed bytes
+    try:
+        # use_threads=False: no Arrow thread pool is created, so nothing can deadlock at interpreter exit (observed with
+        # pyarrow 26 on macOS when a pool had been used); 300 rows do not need parallelism.
+        table = pq.read_table(pa.BufferReader(data), use_threads=False)
+    except Exception as e:  # corrupt parquet that still matched its (equally corrupt) name is not usable either
+        raise ManifestError(f"cannot read the {cfg['split']!r} parquet of {snapshot.name}: {type(e).__name__}") from e
+    if "instance_id" not in table.column_names:
+        raise ManifestError(f"the {cfg['split']!r} parquet of {snapshot.name} has no instance_id column")
+    ids = table.column("instance_id").to_pylist()
+    rows = [i for i, v in enumerate(ids) if v == instance_id]
+    if len(rows) != 1:
+        raise ManifestError(f"expected exactly one record for {instance_id}, found {len(rows)}")
+    return dict(table.slice(rows[0], 1).to_pylist()[0])

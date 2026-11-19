@@ -1,15 +1,20 @@
 """Run manifest: record exactly what a run used, and verify the dataset pin.
 
 Everything here is local: git and file hashing, installed-package versions, and a
-check of the Hugging Face cache layout. Nothing touches the network;
-``offline_env`` forces the Hugging Face libraries offline so a missing or wrong
-snapshot fails instead of silently downloading.
+check of the Hugging Face cache layout. Nothing touches the network. Task records are
+read straight from the verified snapshot's parquet file (``read_verified_split``), never
+through ``datasets``/``huggingface_hub``, so a missing or wrong snapshot fails with a
+``ManifestError`` instead of falling back to a download. (``offline_env`` remains for the
+SWE-bench harness, which does use ``datasets``.)
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import platform
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -20,7 +25,7 @@ from typing import Any
 from .gate import REPO_ROOT, sha256_canonical_json, sha256_file
 
 SCHEMA = 1
-_VERSIONED = ("swebench", "docker", "datasets", "huggingface_hub", "pytest", "packaging")
+_VERSIONED = ("swebench", "docker", "datasets", "huggingface_hub", "pyarrow", "pytest", "packaging")  # pyarrow reads the dataset
 _HASHED_GLOBS = ("src/aiep/*.py", "config/*.json", "scripts/*", "requirements/*")
 
 
@@ -28,11 +33,24 @@ class ManifestError(RuntimeError):
     pass
 
 
+_REPO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
 def load_dataset_config(repo_root: Path = REPO_ROOT) -> dict:
-    cfg = json.loads((Path(repo_root) / "config" / "dataset.json").read_text())
+    path = Path(repo_root) / "config" / "dataset.json"
+    try:
+        cfg = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        raise ManifestError(f"cannot read {path}: {type(e).__name__}") from e
+    if not isinstance(cfg, dict):
+        raise ManifestError(f"{path}: must be a JSON object")
     rev = cfg.get("revision", "")
-    if len(rev) != 40 or any(c not in "0123456789abcdef" for c in rev):
+    if not isinstance(rev, str) or len(rev) != 40 or any(c not in "0123456789abcdef" for c in rev):
         raise ManifestError("config/dataset.json: revision must be a 40-character git commit hash")
+    repo_id = cfg.get("repo_id")
+    if not isinstance(repo_id, str) or not _REPO_ID_RE.fullmatch(repo_id) or ".." in repo_id or "--" in repo_id:
+        # "--" is how the cache joins owner and name, so "a--b/c" and "a/b--c" would share one cache directory
+        raise ManifestError("config/dataset.json: repo_id must be <owner>/<name> with plain characters and no '--'")
     return cfg
 
 
@@ -58,6 +76,66 @@ def verify_dataset_snapshot(hf_home: Path, cfg: dict) -> Path:
     if not snap.is_dir():
         raise ManifestError(f"pinned dataset snapshot directory is missing: {snap}")
     return snap
+
+
+_SPLIT_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _locate_split_file(snapshot_dir: Path, split: str, revision: str | None) -> tuple[Path, str]:
+    """Find the split's single parquet link and prove it stays inside this repository's cache. Returns (entry, blob name).
+
+    Every directory on the way must be a real directory (compared by resolved path, so a symlinked ``snapshots/<rev>`` that
+    points at another snapshot, or a symlinked ``data`` directory, is refused), and the entry must link to a
+    sha256-named file directly inside this repository's ``blobs`` directory (compared by resolved path, so ``..`` through a
+    symlink cannot escape). ``revision``, if given, must be the snapshot directory's own name.
+    """
+    if not isinstance(split, str) or not _SPLIT_RE.fullmatch(split):
+        raise ManifestError(f"config/dataset.json: split {split!r} is not a plain split name")
+    snap = Path(snapshot_dir)
+    if revision is not None and snap.name != revision:
+        raise ManifestError(f"snapshot directory {snap.name!r} is not the pinned revision {revision!r}")
+    repo_dir = snap.parents[1]
+    real = os.path.realpath
+    if real(snap) != os.path.join(real(repo_dir), "snapshots", snap.name):
+        raise ManifestError(f"{snap} is not a real directory of this repository's snapshots (it is, or lies behind, a link)")
+    data_dir = snap / "data"
+    if not data_dir.is_dir() or real(data_dir) != os.path.join(real(snap), "data"):
+        raise ManifestError(f"{data_dir} is missing or is a link")
+    matches = sorted(data_dir.glob(f"{split}-*.parquet"))
+    if len(matches) != 1:
+        raise ManifestError(f"expected exactly one {split!r} parquet file in {data_dir}, found {len(matches)}")
+    entry = matches[0]
+    if not entry.is_symlink():
+        raise ManifestError(f"{entry} is not a link into the Hugging Face blob store")
+    blob = entry.parent / os.readlink(entry)
+    if real(blob.parent) != os.path.join(real(repo_dir), "blobs") or not _SHA256_RE.fullmatch(blob.name):
+        raise ManifestError(f"{entry} does not link to a sha256-named blob of this repository")
+    if not entry.is_file():
+        raise ManifestError(f"{entry} is a dangling link: the blob {blob.name} is missing")
+    return entry, blob.name
+
+
+def verify_split_file(snapshot_dir: Path, split: str, revision: str | None = None) -> Path:
+    """The one parquet file of ``split`` in the verified snapshot, checked byte for byte against its blob name.
+
+    Purely local. The Hugging Face cache stores each LFS file under its SHA-256 and links the snapshot entry to it, so the
+    file's content hash must equal the blob name it is linked to; a modified, truncated or substituted file fails here
+    instead of being loaded. See ``_locate_split_file`` for the containment rules.
+    """
+    entry, name = _locate_split_file(snapshot_dir, split, revision)
+    if sha256_file(entry) != name:
+        raise ManifestError(f"{entry} does not match its blob name {name}: the local data is modified or corrupt")
+    return entry
+
+
+def read_verified_split(snapshot_dir: Path, split: str, revision: str | None = None) -> bytes:
+    """The split's parquet bytes, read once and hashed from those same bytes, so nothing can change between check and use."""
+    entry, name = _locate_split_file(snapshot_dir, split, revision)
+    data = entry.read_bytes()
+    if hashlib.sha256(data).hexdigest() != name:
+        raise ManifestError(f"{entry} does not match its blob name {name}: the local data is modified or corrupt")
+    return data
 
 
 def git_state(repo_root: Path = REPO_ROOT) -> dict[str, Any]:

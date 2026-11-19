@@ -119,6 +119,7 @@ class GatewayConfig:
     max_request_bytes: int = MAX_REQUEST_BYTES
     max_response_bytes: int = MAX_RESPONSE_BYTES
     max_tokens_cap: int = MAX_TOKENS_CAP
+    stop_file: Path | None = None  # on stop, the reason is written here so the orchestrator can read it
     max_concurrent: int = 2  # upstream requests in flight; also the budget-overshoot bound
     queue_timeout_s: float = 30.0
 
@@ -163,7 +164,11 @@ class _PinnedTLSConnection(http.client.HTTPSConnection):
     def connect(self):
         sock = socket.create_connection((self._ip, self.port), self._connect_timeout)
         sock.settimeout(self.timeout)  # after connecting, reads may wait up to read_timeout
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        try:
+            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        except BaseException:
+            sock.close()  # a failed handshake (e.g. certificate verification) must not leak the raw socket
+            raise
 
 
 class Gateway:
@@ -174,6 +179,7 @@ class Gateway:
         self.requests_forwarded = 0
         self.unauthenticated_refusals = 0  # counted always, written to the ledger only up to a cap
         self.internal_errors = 0
+        self.stop_file_errors = 0
         self.slots = threading.BoundedSemaphore(config.max_concurrent)
 
     # ---- stop state ----
@@ -185,8 +191,20 @@ class Gateway:
 
     def stop(self, reason: str) -> None:
         with self._lock:
-            if self._stopped is None:
-                self._stopped = reason
+            if self._stopped is not None:
+                return
+            self._stopped = reason
+        # Best effort and outside the lock: the orchestrator polls this file (the gateway runs in a
+        # container, so it cannot be asked directly). A failure to write must never un-stop the gateway.
+        path = self.cfg.stop_file
+        if path is not None:
+            try:
+                tmp = Path(f"{path}.tmp")
+                tmp.write_text(reason)
+                tmp.replace(path)  # atomic: a reader sees the whole reason or nothing
+            except OSError:
+                with self._lock:
+                    self.stop_file_errors += 1
 
     # ---- upstream ----
     def _ssl_context(self) -> ssl.SSLContext:
@@ -464,22 +482,28 @@ def _make_handler(gw: Gateway):
                     headers[name] = self.headers[name]
             target = parts.path + (f"?{parts.query}" if parts.query else "")
             entry = {"endpoint": parts.path, "model": cfg.model, "bytes_in": len(body), "method": "POST"}
-            conn = None
+            conn = resp = None
             try:
-                conn = gw.open_upstream()
-                conn.request("POST", target, body=body, headers=headers)
-                resp = conn.getresponse()
-            except UpstreamError as e:
-                return self._refuse(502, "api_error", f"upstream unavailable ({e.code})", **entry)
-            except ssl.SSLError:
-                return self._refuse(502, "api_error", "upstream unavailable (tls_verification_failed)", **entry)
-            except (OSError, http.client.HTTPException):
-                return self._refuse(502, "api_error", "upstream unavailable (connection_failed)", **entry)
-            gw.requests_forwarded += 1
-            try:
+                try:
+                    conn = gw.open_upstream()
+                    conn.request("POST", target, body=body, headers=headers)
+                    resp = conn.getresponse()
+                except UpstreamError as e:
+                    return self._refuse(502, "api_error", f"upstream unavailable ({e.code})", **entry)
+                except ssl.SSLError:
+                    return self._refuse(502, "api_error", "upstream unavailable (tls_verification_failed)", **entry)
+                except (OSError, http.client.HTTPException):
+                    return self._refuse(502, "api_error", "upstream unavailable (connection_failed)", **entry)
+                gw.requests_forwarded += 1
                 self._relay(resp, is_count, max_tokens, entry, t0)
             finally:
-                conn.close()
+                # The response holds a makefile() reference to the TLS socket, so closing only the
+                # connection leaves the socket open until the response is closed as well. Close both,
+                # on every path (success, refusal, and failure before or after the response arrived).
+                if resp is not None:
+                    resp.close()
+                if conn is not None:
+                    conn.close()
 
         def _relay(self, resp, is_count: bool, max_tokens: int, entry: dict, t0: float) -> None:
             status = resp.status
@@ -627,6 +651,7 @@ def main(argv: list[str] | None = None) -> int:
         model=experiment["model"],
         pricing=pricing,
         ledger=Ledger(Path(env["AIEP_LEDGER_PATH"])),
+        stop_file=Path(env["AIEP_STOP_FILE"]) if env.get("AIEP_STOP_FILE") else None,
         allowed_hosts=frozenset(h.strip().lower() for h in env["AIEP_ALLOWED_HOSTS"].split(",") if h.strip()),
         budget_usd=Decimal(env["AIEP_BUDGET_USD"]),
         upstream=UpstreamConfig(host=experiment["upstream_host"]),  # defaults only; no overrides

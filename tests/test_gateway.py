@@ -3,6 +3,7 @@
 import json
 import shutil
 import socket
+import ssl
 import threading
 from decimal import Decimal
 from pathlib import Path
@@ -756,3 +757,86 @@ def test_refusals_deliver_their_status_even_when_the_body_was_not_read(rig):
         assert status == 403 and b"stopped: model_violation" in body
     for _ in range(20):
         assert r.request(auth=False, body=big)[0] == 401
+
+
+# ====================== stop file (the orchestrator reads it through docker exec) ======================
+def test_stop_reason_is_written_atomically_to_the_stop_file(rig, tmp_path):
+    r = rig()
+    r.cfg.stop_file = tmp_path / "gateway.stop"
+    assert not r.cfg.stop_file.exists()
+    r.request(body=body_for(model="claude-haiku-5-5"))
+    assert r.cfg.stop_file.read_text() == "model_violation"
+    assert not Path(f"{r.cfg.stop_file}.tmp").exists()
+    r.gw.stop("budget_exhausted")  # a later stop never overwrites the first reason
+    assert r.cfg.stop_file.read_text() == "model_violation" and r.gw.stopped == "model_violation"
+
+
+def test_stop_file_for_each_stop_reason(rig, tmp_path):
+    for trigger, expected in ((lambda r: r.request(body=body_for(**{"tools": [{"type": "web_search_20250305", "name": "w"}]})),
+                               "tool_violation"),
+                              (lambda r: r.request(), "budget_exhausted")):
+        r = rig(budget_usd=Decimal("0.001")) if expected == "budget_exhausted" else rig()
+        r.cfg.stop_file = tmp_path / f"{expected}.stop"
+        trigger(r)
+        assert r.cfg.stop_file.read_text() == expected
+
+
+def test_a_stop_file_that_cannot_be_written_never_unstops_the_gateway(rig, tmp_path):
+    r = rig()
+    r.cfg.stop_file = tmp_path / "no_such_dir" / "gateway.stop"
+    r.request(body=body_for(model="claude-haiku-5-5"))
+    assert r.gw.stopped == "model_violation" and r.gw.stop_file_errors == 1
+    assert r.request()[0] == 403
+
+
+def test_main_reads_the_stop_file_path_from_the_environment():
+    src = Path(gwmod.__file__).read_text()
+    assert 'env.get("AIEP_STOP_FILE")' in src and "stop_file=" in src
+
+
+# ====================== no leaked upstream sockets ======================
+def _track_client_sockets(monkeypatch, up_port):
+    """Record every socket the gateway opens toward the fake upstream: raw and TLS-wrapped (client side only)."""
+    raw, tls = [], []
+    real_cc, real_wrap = socket.create_connection, ssl.SSLContext.wrap_socket
+
+    def cc(addr, *a, **k):
+        s = real_cc(addr, *a, **k)
+        if addr[1] == up_port:
+            raw.append(s)
+        return s
+
+    def wrap(self, sock, *a, **k):
+        s = real_wrap(self, sock, *a, **k)
+        if not k.get("server_side"):
+            tls.append(s)
+        return s
+
+    monkeypatch.setattr(socket, "create_connection", cc)
+    monkeypatch.setattr(ssl.SSLContext, "wrap_socket", wrap)
+    return raw, tls
+
+
+def test_upstream_sockets_are_closed_after_success_redirect_and_tls_failure(rig, monkeypatch, certs):
+    r = rig()
+    raw, tls = _track_client_sockets(monkeypatch, r.up.port)
+    assert r.request()[0] == 200  # success path
+    r.up.set_behavior(lambda h, q: (h.send_response(302), h.send_header("Location", "http://127.0.0.1:9/x"),
+                                    h.send_header("Content-Length", "0"), h.end_headers()))
+    assert r.request()[0] == 502  # refusal after the response arrived
+    r.cfg.upstream = UpstreamConfig(host="other.example.test", port=r.up.port, ca_file=str(r.certs["good"][0]),
+                                    allow_private_addresses=True, resolver=lambda h, p: ["127.0.0.1"])
+    assert r.request()[0] == 502  # certificate for the wrong name: the handshake fails after the TCP connect
+    assert len(tls) == 2 and len(raw) == 3
+    assert all(s.fileno() == -1 for s in tls), "a TLS socket to the upstream was left open"
+    assert all(s.fileno() == -1 for s in raw), "a raw socket to the upstream was left open"
+
+
+def test_upstream_socket_is_closed_even_when_the_response_body_was_not_fully_read(rig, monkeypatch):
+    r = rig(max_response_bytes=2000)
+    raw, tls = _track_client_sockets(monkeypatch, r.up.port)
+    big = [b"data: " + b"x" * 1500 + b"\n\n"] * 20
+    r.up.set_behavior(lambda h, q: stream(h, big))
+    r.request()
+    assert r.ledger()[-1]["outcome"] == "response_too_large"  # the gateway stopped reading mid-body
+    assert len(tls) == 1 and tls[0].fileno() == -1, "the TLS socket stayed open behind the unread response"

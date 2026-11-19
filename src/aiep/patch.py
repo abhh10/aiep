@@ -25,7 +25,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 MAX_PATCH_BYTES = 1024 * 1024
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -45,6 +45,14 @@ HARDENED_GIT = [
     "-c", "diff.mnemonicPrefix=false",
 ]
 
+# Generated files that are never part of a fix. Without this, running the tests in the workspace could
+# put binary .pyc files into the patch (and get it rejected) in repositories that do not ignore them.
+EXCLUDE_PATHSPECS = [
+    ":(exclude,glob)**/__pycache__/**",
+    ":(exclude,glob)**/*.pyc",
+    ":(exclude,glob)**/.pytest_cache/**",
+]
+
 GitRunner = Callable[[list[str]], bytes]
 
 
@@ -58,13 +66,19 @@ class PatchResult:
 
 
 def extract_patch(run_git: GitRunner, base_commit: str, max_bytes: int = MAX_PATCH_BYTES) -> PatchResult:
-    """Capture everything changed since ``base_commit`` (including new files), then validate it."""
+    """Capture everything changed since ``base_commit`` (including new files), then validate it.
+
+    ``base_commit`` must be the **seed's own HEAD**, the synthetic "SWE-bench" commit that the
+    instance image carries (see docs/M1_RESULTS.md section 8.6), not the dataset's ``base_commit``.
+    The seed HEAD is recorded when the seed is built (``seed.py``) and is what the working tree
+    was checked out at, so the diff contains exactly the agent's changes.
+    """
     if not _SHA_RE.match(base_commit):
         raise ValueError("base_commit must be a 40-character lowercase hex commit")
-    run_git([*HARDENED_GIT, "add", "-A", "-N"])  # intent-to-add so new files appear in the diff
+    run_git([*HARDENED_GIT, "add", "-A", "-N", "--", ".", *EXCLUDE_PATHSPECS])  # intent-to-add: new files appear
     raw = run_git([
         *HARDENED_GIT, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-        "--src-prefix=a/", "--dst-prefix=b/", base_commit,
+        "--src-prefix=a/", "--dst-prefix=b/", base_commit, "--", ".", *EXCLUDE_PATHSPECS,
     ])
     return validate_patch(raw, max_bytes)
 
@@ -153,6 +167,24 @@ def write_predictions(path: Path, instance_id: str, model_name: str, result: Pat
 
 
 # ---------------------------------------------------------------------------------------
+def container_git_runner(exec_git: Callable[[list[str]], Any]) -> GitRunner:
+    """Adapt an in-container exec function to a ``GitRunner``.
+
+    ``exec_git`` takes a full argv (starting with the absolute git path) and returns an object with
+    ``exit_code``, ``stdout``, ``truncated`` and ``timed_out``. This is the ONLY git runner production
+    code may use: it executes inside the agent container, never on the host.
+    """
+
+    def run(args: list[str]) -> bytes:
+        r = exec_git(["/usr/bin/git", *args])
+        if r.timed_out or r.truncated or r.exit_code != 0:
+            what = "timed out" if r.timed_out else "output exceeded the cap" if r.truncated else f"exit code {r.exit_code}"
+            raise RuntimeError(f"git in the agent container failed: {what}")
+        return r.stdout
+
+    return run
+
+
 def trusted_local_git_runner(repo_dir: Path, timeout: float = 60.0) -> GitRunner:
     """Run git on a LOCAL directory. For tests on repositories we created ourselves ONLY.
 

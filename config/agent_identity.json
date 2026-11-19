@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "status": "unverified",
+  "name": "nonroot",
+  "uid": null,
+  "gid": null,
+  "home": null,
+  "evidence": [
+    "swebench 5.0.2 image_builder/docker_utils.py: `chmod -R 777 /testbed  # So nonroot user can run tests` (design intent: a 'nonroot' account exists)",
+    "swebench 5.0.2 modal_eval/run_evaluation_modal.py (a different builder): `adduser --disabled-password --gecos 'dog' nonroot`",
+    "M1 container_inspect.json: Config.User is root; no M1 artifact records any non-root uid, gid or home"
+  ],
+  "why_unverified": "No local artifact shows that the pulled instance image has a 'nonroot' account, nor its uid, gid or home directory. Nothing here is guessed: a numeric uid without a passwd entry is not assumed to be enough for Claude Code.",
+  "to_verify": "In an approved Docker step, run IDENTITY_SCRIPT (id -u, id -g, id -un, getent passwd) as that account, then set status to 'verified' and fill uid, gid and home. Every run re-checks this inside the container before injection."
+}
