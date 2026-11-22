@@ -65,7 +65,17 @@ class World:
     def client(self):
         return SimpleNamespace(close=lambda: None)
 
-    def pull(self, c, task):
+    @staticmethod
+    def record_of(task):
+        """A fake verified digest record: only the fields the preparation path reads."""
+        return {"repository": "swebench/sweb.eval.x86_64." + task.replace("__", "_1776_"), "index_digest": "sha256:" + "a" * 64}
+
+    @staticmethod
+    def task_of(record):
+        return record["repository"].split("x86_64.")[1].replace("_1776_", "__")
+
+    def pull(self, c, record):
+        task = self.task_of(record)
         if task in self.pull_fails:
             raise RuntimeError("pull failed")
         self.images.add(task)
@@ -153,7 +163,8 @@ class World:
 
         d = dict(root=self.root, definition=definition, client_factory=self.client, free_gib=lambda: self.free, prepare=self.prepare, execute=self.execute, handoff=self.handoff,
                  grade=self.grade, write_noop=lambda p, t: p, pricing=PRICING, pin_image=pin_image, pull_image=self.pull, extract_seed=extract,
-                 verify_identity=lambda *a, **k: None, image_present=lambda c, n: any(t.replace("__", "_1776_") in n for t in self.images),
+                 digest_record=self.record_of, verify_registry=lambda rec: self.log.append(("verify_registry", self.task_of(rec))),
+                 verify_identity=lambda *a, **k: None, image_present=lambda c, rec: any(t == self.task_of(rec) for t in self.images),
                  image_id_of=lambda c, n: self.img, containers_using=lambda c, i: self.running, remove_image_by_id=self.remove,
                  real_key="k" * 40, claude_binary=Path("/x"), sleep=lambda s: self.log.append(("sleep", s)))
         d.update(over)
@@ -194,6 +205,8 @@ def test_one_complete_pair(tmp_path, world):
     assert a["pair_id"] == b["pair_id"] and {a["order_index"], b["order_index"]} == {1, 2}
     assert ("sleep", 600) in world.log and world.log.index(("sleep", 600)) < world.log.index(("run", d["design"]["schedule"][1]["slot_id"]))
     assert ("remove",) in world.log and not world.images
+    t = d["design"]["schedule"][0]["task_id"]
+    assert world.log.index(("verify_registry", t)) < world.log.index(("pull", t))  # the digest record is re-verified against the registry before the pull
 
 
 def test_identity_preserved_through_every_stage(tmp_path, world):

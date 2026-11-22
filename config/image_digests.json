@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "platform": "linux/amd64",
+  "note": "Immutable identities of task images, kept OUTSIDE the hashed experiment definition. Each record is re-verified against the registry before a pull; nothing falls back to the mutable :latest tag. Records are added only after verification; a task without a record cannot be prepared.",
+  "images": {
+    "sympy__sympy-18621": {
+      "repository": "swebench/sweb.eval.x86_64.sympy_1776_sympy-18621",
+      "index_digest": "sha256:6ceb7424d50163dbea48b63200bb124317e530dd314cb29e1d98d8cafdc1b411",
+      "index_media_type": "application/vnd.oci.image.index.v1+json",
+      "platform": "linux/amd64",
+      "platform_manifest_digest": "sha256:1cbb5f16f284d7b1008e62f95484378e86e0f92e14b66c4ed612d6047a3b1c0d",
+      "platform_manifest_media_type": "application/vnd.oci.image.manifest.v1+json",
+      "config_digest": "sha256:c3238e11fee5dc7307b7184805b2255fd79ec50e19f3796ba7d107b50ef69963",
+      "config_size": 4211,
+      "layers": [
+        {
+          "digest": "sha256:39a945af8df2ad9343f141c82355d3f2c4b576d432eda34c460d630607462b60",
+          "size": 29736517
+        },
+        {
+          "digest": "sha256:a4d326e88417b9b4a3363dfabc9de79b87be8ce1cba4f09c1893df8147cbe669",
+          "size": 210294821
+        },
+        {
+          "digest": "sha256:fd7a87c0b95ba9470ab5b292bee0cde8f8f4b91a5c9755052c1b36b06f71c7d3",
+          "size": 420167964
+        },
+        {
+          "digest": "sha256:d07e7f5cb3eb9bc05af4042e06ff23bc67fd825fe4615d36a7c1cfbe561c80f4",
+          "size": 21559
+        },
+        {
+          "digest": "sha256:3d473160e8e53b487164b03e8f911a724fd2b97c2c7f5aeaf5ee89adfb8517e4",
+          "size": 163
+        },
+        {
+          "digest": "sha256:6a99d82d9a891196945ba11ebc320a1bf85bfc1187b4e4d4cfe4154b5644e3de",
+          "size": 4308
+        },
+        {
+          "digest": "sha256:dc407fa3625218d589452c3dcc5e638fe08368d417b111057d36fd782d2e90c5",
+          "size": 350128509
+        },
+        {
+          "digest": "sha256:c271b27e967aa94f9cc9a48ca4de7b027cdcc9cdc12850368bbdf8575eb21ef2",
+          "size": 191
+        },
+        {
+          "digest": "sha256:b937f0e0a713c8e80db8c6d08c7e3adfc69d8e5edd19a05aa62903c6d99f7db1",
+          "size": 74180802
+        },
+        {
+          "digest": "sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1",
+          "size": 32
+        }
+      ],
+      "compressed_layer_bytes": 1084534866,
+      "provenance": {
+        "source": "Docker Hub registry-1.docker.io via anonymous manifest requests (index and linux/amd64 platform manifest only; no layer or config blob was downloaded to verify)",
+        "verified_on": "2026-11-22",
+        "tag_resolved": "latest (mutable; resolved once to the digests below and never used again)",
+        "checks": [
+          "the index body's sha256 equals the index digest and the registry's docker-content-digest header",
+          "the index lists exactly one linux/amd64 entry and it is the platform manifest digest below",
+          "the platform manifest body's sha256 equals its digest and the registry's header",
+          "layer digests and compressed sizes (10 layers, 1,084,534,866 bytes) match an earlier independent registry audit of the same date",
+          "an approved pull by the index digest produced a local image ID equal to the index digest (containerd image store), platform linux/amd64, 10 root filesystem layers"
+        ]
+      }
+    }
+  }
+}

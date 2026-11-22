@@ -50,13 +50,19 @@ def blockers(root: Path, definition: dict, args: argparse.Namespace, key_present
     return out
 
 
+def image_wiring(root: Path) -> dict:  # pragma: no cover - the real wiring; never exercised by tests
+    """The digest-pinned image callables shared by the batch and --prepare-only: the lock record, its registry re-verification, lookup and pull BY DIGEST (never a tag)."""
+    from aiep import image_digests as idg
+    return dict(digest_record=lambda t: idg.load_digest_record(root, t), verify_registry=lambda rec: idg.verify_record_against_registry(rec, idg.docker_hub_fetch),
+                image_present=idg.image_present, pull_image=idg.pull_by_digest)
+
+
 def real_steps(root: Path, definition: dict, args: argparse.Namespace, key: str):  # pragma: no cover - the real wiring; never exercised by tests
     import docker
     from aiep import grading, m2_run, task_setup
     from aiep.m3_steps import Deps, RealSteps
     from aiep.pricing import load_pricing
     from aiep.handoff import Providers, validate_handoff
-    from aiep.task_screening import image_name
     import m3_grade
     from validate_handoff import seed_git, seed_lineage
     from aiep.task_input import load_record
@@ -71,17 +77,6 @@ def real_steps(root: Path, definition: dict, args: argparse.Namespace, key: str)
         return grading.grade(instance_id, preds, run_id, kind=kind, root=root, expected_image=expected_image, free_gib=lambda: shutil.disk_usage(root).free / 1024**3,
                              image_id_of=m3_grade.real_image_id, run_process=m3_grade.run_process, kill_containers=m3_grade.real_kill)
 
-    def pull(c, task):
-        repo, _, tag = image_name(task).partition(":")
-        c.images.pull(repo, tag=tag)
-
-    def present(c, name):
-        try:
-            c.images.get(name)
-            return True
-        except Exception:
-            return False
-
     def image_id_of(c, name):
         try:
             return c.images.get(name).id
@@ -91,9 +86,9 @@ def real_steps(root: Path, definition: dict, args: argparse.Namespace, key: str)
     pricing = load_pricing(root / "config" / "model_pricing.json", json.loads((root / "config" / "experiment.json").read_text())["model"])
     deps = Deps(root=root, definition=definition, client_factory=client, free_gib=lambda: shutil.disk_usage(root).free / 1024**3, prepare=m2_run.prepare,
                 execute=m2_run.execute, handoff=handoff, grade=grade, write_noop=lambda p, t: grading.write_noop_predictions(p, t), pricing=pricing,
-                pin_image=task_setup.pin_image, pull_image=pull, extract_seed=lambda c, r, t, *, free_bytes: task_setup.extract_and_pin_seed(
+                pin_image=task_setup.pin_image, **image_wiring(root), extract_seed=lambda c, r, t, *, free_bytes: task_setup.extract_and_pin_seed(
                     c, r, t, free_bytes=free_bytes, base_commit=load_record(t, root / ".cache" / "hf", root)["base_commit"], lineage=seed_lineage), verify_identity=task_setup.verify_and_pin_identity,
-                image_present=present, image_id_of=image_id_of,
+                image_id_of=image_id_of,
                 containers_using=lambda c, iid: len(c.containers.list(all=True, filters={"ancestor": iid})),
                 remove_image_by_id=lambda c, iid: c.images.remove(iid, force=False), real_key=key, claude_binary=Path(args.claude_binary))
     return RealSteps(deps)
@@ -103,24 +98,12 @@ def real_prepare(root: Path, task_id: str, *, approved_pulls: bool) -> dict:  # 
     import docker
     from aiep import task_setup
     from aiep.m3_steps import prepare_pinned_task
-    from aiep.task_screening import image_name
     from validate_handoff import seed_lineage
     from aiep.task_input import load_record
 
-    def present(c, name):
-        try:
-            c.images.get(name)
-            return True
-        except Exception:
-            return False
-
-    def pull(c, task):
-        repo, _, tag = image_name(task).partition(":")
-        c.images.pull(repo, tag=tag)
-
     return prepare_pinned_task(
-        root=root, task_id=task_id, client_factory=lambda: docker.from_env(timeout=600), free_gib=lambda: shutil.disk_usage(root).free / 1024**3, image_present=present,
-        pull_image=pull, pin_image=task_setup.pin_image,
+        root=root, task_id=task_id, client_factory=lambda: docker.from_env(timeout=600), free_gib=lambda: shutil.disk_usage(root).free / 1024**3,
+        **image_wiring(root), pin_image=task_setup.pin_image,
         extract_seed=lambda c, r, t, *, free_bytes: task_setup.extract_and_pin_seed(
             c, r, t, free_bytes=free_bytes, base_commit=load_record(t, root / ".cache" / "hf", root)["base_commit"], lineage=seed_lineage),
         verify_identity=task_setup.verify_and_pin_identity, allow_pull=approved_pulls)

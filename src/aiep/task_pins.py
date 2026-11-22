@@ -88,12 +88,14 @@ def pin_status(root: Path, instance_id: str) -> dict[str, Any]:
             "runnable": not missing, "missing": missing}
 
 
-def add_evaluator_image(root: Path, instance_id: str, image_id: str, *, source: str) -> None:
+def add_evaluator_image(root: Path, instance_id: str, image_id: str, *, source: str, digest_reference: str | None = None) -> None:
     if not _IMAGE_ID.fullmatch(str(image_id)):
         raise PinError("image_id must be sha256:<64 hex>")
     path = Path(root) / "config" / "evaluator_images.json"
     doc = _read(path)
     entry = {"image": image_name(instance_id), "image_id": image_id, "source": source}
+    if digest_reference is not None:  # how the image was identified (repository@index digest); the "image" name above is the stock evaluator's later :latest name, not a lookup key
+        entry["digest_reference"] = digest_reference
     old = (doc.setdefault("images", {})).get(instance_id)
     if old is not None and old != entry:
         raise PinError(f"{instance_id} already has a different evaluator image pin; a pin is never overwritten")

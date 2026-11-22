@@ -26,6 +26,7 @@ from typing import Any, Callable, Mapping
 from . import results as results_mod
 from .experiment_def import worst_case_exposure_estimate
 from .grading import START_GATE_GIB
+from .image_digests import DigestError, reference
 from .limits import AGENT_MAX_OUTPUT_TOKENS
 from .m3_batch import ArmResult
 from .task_pins import evaluator_image_pin, pin_status
@@ -49,23 +50,30 @@ def read_predictions(path: Path, instance_id: str) -> dict[str, Any]:
     return pred
 
 
-def prepare_pinned_task(*, root: Path, task_id: str, client_factory: Callable[[], Any], free_gib: Callable[[], float], image_present: Callable[[Any, str], bool],
-                        pull_image: Callable[[Any, str], None], pin_image: Callable[..., Any], extract_seed: Callable[..., Any], verify_identity: Callable[..., Any],
+def prepare_pinned_task(*, root: Path, task_id: str, client_factory: Callable[[], Any], free_gib: Callable[[], float], digest_record: Callable[[str], Mapping[str, Any]],
+                        verify_registry: Callable[[Mapping[str, Any]], None], image_present: Callable[[Any, Mapping[str, Any]], bool],
+                        pull_image: Callable[[Any, Mapping[str, Any]], None], pin_image: Callable[..., Any], extract_seed: Callable[..., Any], verify_identity: Callable[..., Any],
                         allow_pull: bool) -> dict[str, Any]:
-    """Make one task runnable: pull its image if it is not local (only with ``allow_pull`` and above the 16 GiB start gate), pin the image ID, extract and verify the seed
-    (base-commit check included), verify the agent identity. Each step is skipped if already pinned. Shared by the batch and by ``run_m3_pilot.py --prepare-only``."""
+    """Make one task runnable, by IMMUTABLE image identity. The task's verified digest record is loaded first (a missing or invalid record fails closed, before any Docker
+    call; there is no fallback to the ``:latest`` tag). If the image is not local: pulling must be approved, free space must be above the 16 GiB start gate, and the record
+    is re-verified against the registry; only then is ``<repository>@<index digest>`` pulled for linux/amd64 and its ID checked. Then the image ID is pinned, the seed
+    extracted and verified (base-commit check included) and the agent identity verified; each step is skipped if already done. Shared by the batch and ``--prepare-only``."""
     root = Path(root)
+    try:
+        record = digest_record(task_id)
+    except DigestError as e:
+        raise StepError(f"{task_id}: {e}") from e
     free = int(free_gib() * 1024**3)
     client = client_factory()
     pulled = False
     try:
-        from .task_screening import image_name
-        if not image_present(client, image_name(task_id)):
+        if not image_present(client, record):
             if not allow_pull:
                 raise StepError(f"{task_id}: the image is not local and pulling was not approved")
             if free_gib() < START_GATE_GIB:
                 raise StepError(f"{task_id}: {free_gib():.2f} GiB free, {START_GATE_GIB:.0f} GiB required before a pull (the start gate is never lowered); nothing was pulled")
-            pull_image(client, task_id)
+            verify_registry(record)  # the lock is re-verified against the registry BEFORE any layer is downloaded
+            pull_image(client, record)
             pulled = True
         if evaluator_image_pin(root, task_id) is None:
             pin_image(client, root, task_id, free_bytes=free)
@@ -78,7 +86,7 @@ def prepare_pinned_task(*, root: Path, task_id: str, client_factory: Callable[[]
     status = pin_status(root, task_id)
     if not status["runnable"]:
         raise StepError(f"{task_id} is still not runnable after preparation: {status['missing']}")
-    return {"pulled": pulled, "status": status}
+    return {"pulled": pulled, "status": status, "image_reference": reference(record), "index_digest": record["index_digest"]}
 
 
 @dataclass
@@ -94,11 +102,13 @@ class Deps:
     write_noop: Callable[[Path, str], Path]
     pricing: Any
     pin_image: Callable[..., str]
-    pull_image: Callable[[Any, str], None]
+    digest_record: Callable[[str], Mapping[str, Any]]  # task id -> its verified digest record (DigestError if none)
+    verify_registry: Callable[[Mapping[str, Any]], None]  # re-verify a record against the registry before a pull
+    pull_image: Callable[[Any, Mapping[str, Any]], None]  # (client, record): pull by digest
     extract_seed: Callable[..., Any]
     verify_identity: Callable[..., Any]
-    image_present: Callable[[Any, str], bool]
-    image_id_of: Callable[[Any, str], str | None]
+    image_present: Callable[[Any, Mapping[str, Any]], bool]  # (client, record)
+    image_id_of: Callable[[Any, str], str | None]  # (client, reference or name)
     containers_using: Callable[[Any, str], int]
     remove_image_by_id: Callable[[Any, str], None]
     real_key: str
@@ -128,8 +138,8 @@ class RealSteps:
         return bool(pin_status(self.root, task_id)["runnable"])
 
     def prepare_task(self, task_id: str) -> dict[str, Any]:
-        return prepare_pinned_task(root=self.root, task_id=task_id, client_factory=self.d.client_factory, free_gib=self.free_gib, image_present=self.d.image_present,
-                                   pull_image=self.d.pull_image, pin_image=self.d.pin_image, extract_seed=self.d.extract_seed, verify_identity=self.d.verify_identity,
+        return prepare_pinned_task(root=self.root, task_id=task_id, client_factory=self.d.client_factory, free_gib=self.free_gib, digest_record=self.d.digest_record,
+                                   verify_registry=self.d.verify_registry, image_present=self.d.image_present, pull_image=self.d.pull_image, pin_image=self.d.pin_image, extract_seed=self.d.extract_seed, verify_identity=self.d.verify_identity,
                                    allow_pull=True)  # the batch calls this only with the pull approval
 
     # ---- controls (the stock evaluator, gold and a no-op patch; no agent involved)
@@ -209,7 +219,7 @@ class RealSteps:
             raise StepError(f"{task_id} has no pin: refusing to remove an unpinned image")
         client = self.d.client_factory()
         try:
-            if self.d.image_id_of(client, pin["image"]) != pin["image_id"]:
+            if self.d.image_id_of(client, pin.get("digest_reference") or pin["image"]) != pin["image_id"]:  # by digest reference when the pin has one
                 raise StepError("the local image does not have the pinned ID: it is not removed")
             if self.d.containers_using(client, pin["image_id"]) > 0:
                 raise StepError("a container still uses the image: it is not removed")

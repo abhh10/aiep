@@ -82,3 +82,13 @@ and the `supersedes` block (reason, changes, what is unchanged).
 * **No-op control** (`grading.noop_prediction`, `scripts/m3_noop_predictions.py`, `m3_grade.py <id> <run_id> noop`): deterministic bytes (`NOOP_PATCH_SHA256`), a truthful `index` line,
   never overwritten. The earlier handoff text said its index line was `e69de29` (the empty blob) although the file has one line; it is now git's real blob id for the content.
   The control patch has still never been run through the evaluator.
+
+## Digest-pinned image preparation (implemented; mocks only, no image prepared yet)
+The task images are published under the mutable tag `:latest`. `config/image_digests.json` (separate from the hashed definition) holds, per task, the verified OCI index digest, the linux/amd64
+platform manifest digest, config and layer digests and sizes, and provenance; today it contains ONLY `sympy__sympy-18621` (verified 2026-11-22). `aiep.image_digests` loads a record
+(missing, malformed or inconsistent records fail closed), re-verifies it against the registry before a pull (index body hash and digest header, exactly one linux/amd64 entry equal to the
+recorded platform manifest, platform manifest body hash and header, config and layers), pulls `<repository>@<index digest>` for linux/amd64, and requires the local image ID to equal the
+index digest. `prepare_pinned_task`, the pull wrapper (`scripts/pull_task_image.py`), `pin_image` and the batch's image-removal lookup all use that one reference; the pin records it as
+`digest_reference`. No code path pulls or looks up by tag, and nothing creates a `:latest` tag. The stock evaluator still looks its image up by the `:latest` NAME (`grading.grade`
+checks `image_id_of(<repository>:latest)`), so a digest-only image cannot be graded until a separate, approved step adds that local tag; that is deliberately not done here.
+Adding a task needs its record resolved and verified first (a `scripts/` resolver for that is not written yet; records so far were produced by hand from anonymous manifest requests).

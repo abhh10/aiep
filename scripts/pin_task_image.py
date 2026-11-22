@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record the immutable ID of a task's LOCAL image into config/evaluator_images.json (read-only inspect, never a pull). Approval-gated Docker step.
+"""Record the immutable ID of a task's LOCAL image into config/evaluator_images.json (read-only inspect, never a pull). The image is found by its verified digest reference from config/image_digests.json, never by the :latest name. Approval-gated Docker step.
 
     PYTHONPATH=src .venv/bin/python scripts/pin_task_image.py <instance_id>
 """
@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from aiep.image_digests import DigestError  # noqa: E402
 from aiep.task_pins import PinError  # noqa: E402
 from aiep.task_setup import SetupRefused, pin_image  # noqa: E402
 
@@ -30,7 +31,7 @@ def main(argv: list[str] | None = None, *, client_factory=None, free_bytes=None)
     try:
         print(pin_image(client, ROOT, args[0], free_bytes=free))
         return 0
-    except (SetupRefused, PinError) as e:
+    except (SetupRefused, PinError, DigestError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
     finally:

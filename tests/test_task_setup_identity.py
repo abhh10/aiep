@@ -63,27 +63,53 @@ class Images:
         raise AssertionError("an image must never be pulled here")
 
 
-# ---------------------------------------------------------------- pin_image
-def test_pin_image_records_the_id_of_a_local_image_and_never_pulls(root):
-    from aiep.task_screening import image_name
-    c = SimpleNamespace(images=Images({image_name(INSTANCE): IMAGE}))
+# ---------------------------------------------------------------- pin_image (by digest reference; see tests/test_image_digests.py)
+def digest_record(root, image_id=IMAGE):
+    """A verified-looking digest record for the demo task whose index digest is IMAGE, written into the root's lock file."""
+    from aiep import image_digests as idg
+    rec = {"repository": "swebench/sweb.eval.x86_64.demo_1776_demo-1", "index_digest": image_id, "index_media_type": idg.OCI_INDEX, "platform": "linux/amd64",
+           "platform_manifest_digest": "sha256:" + "b" * 64, "platform_manifest_media_type": idg.OCI_MANIFEST, "config_digest": "sha256:" + "c" * 64, "config_size": 10,
+           "layers": [{"digest": "sha256:" + "1" * 64, "size": 5}], "compressed_layer_bytes": 5, "provenance": {"source": "test", "verified_on": "2026-11-22"}}
+    (root / "config" / "image_digests.json").write_text(json.dumps({"schema": 1, "platform": "linux/amd64", "images": {INSTANCE: rec}}))
+    return rec
+
+
+def local_client(rec, image_id=IMAGE):
+    from aiep import image_digests as idg
+    img = SimpleNamespace(id=image_id, attrs={"Os": "linux", "Architecture": "amd64"})
+    return SimpleNamespace(images=Images({idg.reference(rec): image_id}), _img=img)
+
+
+class Images2(Images):
+    def get(self, ref):
+        self.calls.append(("get", ref))
+        if ref not in self.have:
+            raise LookupError("no such image")
+        return SimpleNamespace(id=self.have[ref], attrs={"Os": "linux", "Architecture": "amd64"})
+
+
+def test_pin_image_records_the_id_of_a_local_image_found_by_digest_and_never_pulls(root):
+    from aiep import image_digests as idg
+    rec = digest_record(root)
+    c = SimpleNamespace(images=Images2({idg.reference(rec): IMAGE}))
     assert ts.pin_image(c, root, INSTANCE, free_bytes=16 * GIB) == IMAGE
-    assert tp.evaluator_image_pin(root, INSTANCE)["image_id"] == IMAGE
+    assert tp.evaluator_image_pin(root, INSTANCE)["image_id"] == IMAGE and c.images.calls == [("get", idg.reference(rec))]
     assert ts.pin_image(c, root, INSTANCE, free_bytes=16 * GIB) == IMAGE  # idempotent
 
 
 def test_pin_image_refuses_a_missing_image_a_low_disk_and_a_changed_id(root):
-    from aiep.task_screening import image_name
+    from aiep import image_digests as idg
+    rec = digest_record(root)
     with pytest.raises(SetupRefused, match="not available locally"):
-        ts.pin_image(SimpleNamespace(images=Images({})), root, INSTANCE, free_bytes=16 * GIB)
-    gate = SimpleNamespace(images=Images({image_name(INSTANCE): IMAGE}))
+        ts.pin_image(SimpleNamespace(images=Images2({})), root, INSTANCE, free_bytes=16 * GIB)
+    gate = SimpleNamespace(images=Images2({idg.reference(rec): IMAGE}))
     with pytest.raises(SetupRefused, match="16 GiB"):
         ts.pin_image(gate, root, INSTANCE, free_bytes=15 * GIB)
     assert gate.images.calls == []
     ts.pin_image(gate, root, INSTANCE, free_bytes=16 * GIB)
-    other = SimpleNamespace(images=Images({image_name(INSTANCE): "sha256:" + "e" * 64}))
-    with pytest.raises(tp.PinError, match="never overwritten"):
-        ts.pin_image(other, root, INSTANCE, free_bytes=16 * GIB)
+    wrong = SimpleNamespace(images=Images2({idg.reference(rec): "sha256:" + "e" * 64}))
+    with pytest.raises(idg.DigestError, match="image ID"):
+        ts.pin_image(wrong, root, INSTANCE, free_bytes=16 * GIB)
 
 
 # ---------------------------------------------------------------- verify_and_pin_identity
@@ -200,34 +226,54 @@ def script_client(**attrs):
     return c
 
 
-def test_pull_script_needs_the_approval_flag_and_the_start_gate_before_any_client_is_built():
+def test_pull_script_needs_the_approval_flag_and_the_start_gate_before_any_client_is_built(root):
     s = load_script("pull_task_image")
     built = []
-    assert s.main([INSTANCE], client_factory=lambda: built.append(1), free_bytes=30 * GIB) == 2
-    assert s.main([INSTANCE, "--yes"], client_factory=lambda: built.append(1), free_bytes=30 * GIB) == 2
-    assert s.main([INSTANCE, "--i-approve-this-download"], client_factory=lambda: built.append(1), free_bytes=15 * GIB) == 2
+    assert s.main([INSTANCE], client_factory=lambda: built.append(1), free_bytes=30 * GIB, root=root) == 2
+    assert s.main([INSTANCE, "--yes"], client_factory=lambda: built.append(1), free_bytes=30 * GIB, root=root) == 2
+    assert s.main([INSTANCE, "--i-approve-this-download"], client_factory=lambda: built.append(1), free_bytes=15 * GIB, root=root) == 2
     assert built == []
 
 
-def test_pull_script_pulls_exactly_the_derived_image_name_once(capsys):
-    from aiep.task_screening import image_name
+def test_pull_script_refuses_without_a_record_and_when_the_registry_disagrees_before_any_client_is_built(root):
+    from aiep import image_digests as idg
     s = load_script("pull_task_image")
+    built = []
+    assert s.main([INSTANCE, "--i-approve-this-download"], client_factory=lambda: built.append(1), free_bytes=16 * GIB, root=root, fetch=lambda *a: (_ for _ in ()).throw(AssertionError)) == 2  # no record
+    digest_record(root)
+    assert s.main([INSTANCE, "--i-approve-this-download"], client_factory=lambda: built.append(1), free_bytes=16 * GIB, root=root, fetch=lambda *a: (_ for _ in ()).throw(LookupError("404"))) == 2
+    assert built == []
+
+
+def test_pull_script_pulls_by_the_verified_index_digest_for_linux_amd64_once(root, capsys, monkeypatch):
+    from aiep import image_digests as idg
+    s = load_script("pull_task_image")
+    rec = digest_record(root)
+    monkeypatch.setattr(idg, "verify_record_against_registry", lambda r, f: None)  # the registry checks are covered in tests/test_image_digests.py
     pulls = []
-    c = script_client(images=SimpleNamespace(pull=lambda repo, tag=None: pulls.append((repo, tag)) or SimpleNamespace(id=IMAGE)))
-    assert s.main([INSTANCE, "--i-approve-this-download"], client_factory=lambda: c, free_bytes=16 * GIB) == 0
-    repo, _, tag = image_name(INSTANCE).partition(":")
-    assert pulls == [(repo, tag)] and IMAGE in capsys.readouterr().out and c.closed == [1]
+
+    class Imgs(Images2):
+        def pull(self, repository, tag=None, **kw):
+            pulls.append((repository, tag, kw))
+            self.have[repository] = IMAGE
+            return SimpleNamespace(id=IMAGE, attrs={"Os": "linux", "Architecture": "amd64"})
+    c = script_client(images=Imgs({}))
+    assert s.main([INSTANCE, "--i-approve-this-download"], client_factory=lambda: c, free_bytes=16 * GIB, root=root) == 0
+    assert pulls == [(idg.reference(rec), None, {"platform": "linux/amd64"})] and IMAGE in capsys.readouterr().out and c.closed == [1]
+    c2 = script_client(images=Imgs({idg.reference(rec): IMAGE}))
+    assert s.main([INSTANCE, "--i-approve-this-download"], client_factory=lambda: c2, free_bytes=16 * GIB, root=root) == 0 and len(pulls) == 1  # already local: not pulled again
 
 
 def test_pin_script_exit_codes(root, monkeypatch, capsys):
-    from aiep.task_screening import image_name
+    from aiep import image_digests as idg
     s = load_script("pin_task_image")
     monkeypatch.setattr(s, "ROOT", root)
     built = []
     assert s.main([], client_factory=lambda: built.append(1), free_bytes=30 * GIB) == 2
     assert s.main([INSTANCE], client_factory=lambda: built.append(1), free_bytes=15 * GIB) == 2 and built == []
-    assert s.main([INSTANCE], client_factory=lambda: script_client(images=Images({})), free_bytes=16 * GIB) == 1
-    assert s.main([INSTANCE], client_factory=lambda: script_client(images=Images({image_name(INSTANCE): IMAGE})), free_bytes=16 * GIB) == 0
+    rec = digest_record(root)
+    assert s.main([INSTANCE], client_factory=lambda: script_client(images=Images2({})), free_bytes=16 * GIB) == 1
+    assert s.main([INSTANCE], client_factory=lambda: script_client(images=Images2({idg.reference(rec): IMAGE})), free_bytes=16 * GIB) == 0
     assert IMAGE in capsys.readouterr().out and tp.evaluator_image_pin(root, INSTANCE)["image_id"] == IMAGE
 
 

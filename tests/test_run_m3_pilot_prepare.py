@@ -78,13 +78,15 @@ def test_no_key_binary_or_definition_lock_is_needed(capsys):
     assert DEF["status"] == "draft" and go(["--prepare-only", "--task", T1, "--approve-pulls"]) == 0
 
 
-# ---- the shared preparation function
-def deps(present=False, free=30.0, pinned=False):
+# ---- the shared preparation function (digest-pinned; see tests/test_image_digests.py for the full set)
+REC = {"repository": "swebench/sweb.eval.x86_64.demo_1776_demo-1", "index_digest": "sha256:" + "a" * 64}
+
+
+def deps(present=False, free=30.0):
     log = []
-    state = {"image": False, "seed": False, "identity": False}
-    d = dict(root=REAL, client_factory=lambda: SimpleNamespace(close=lambda: log.append("close")), free_gib=lambda: free,
-             image_present=lambda c, n: present, pull_image=lambda c, t: log.append(("pull", t)), pin_image=lambda *a, **k: log.append("pin"),
-             extract_seed=lambda *a, **k: log.append("seed"), verify_identity=lambda *a, **k: log.append("identity"))
+    d = dict(root=REAL, client_factory=lambda: SimpleNamespace(close=lambda: log.append("close")), free_gib=lambda: free, digest_record=lambda t: REC,
+             verify_registry=lambda rec: log.append("verify_registry"), image_present=lambda c, rec: present, pull_image=lambda c, rec: log.append(("pull", rec["index_digest"])),
+             pin_image=lambda *a, **k: log.append("pin"), extract_seed=lambda *a, **k: log.append("seed"), verify_identity=lambda *a, **k: log.append("identity"))
     return d, log
 
 
@@ -94,14 +96,14 @@ def test_pull_refused_below_the_start_gate_before_any_docker_call(monkeypatch):
     monkeypatch.setattr(m3_steps, "evaluator_image_pin", lambda root, t: None)
     with pytest.raises(StepError, match="16 GiB"):
         prepare_pinned_task(**d, task_id=T1, allow_pull=True)
-    assert ("pull", T1) not in log
+    assert not any(isinstance(x, tuple) for x in log) and "verify_registry" not in log
 
 
 def test_no_pull_without_permission(monkeypatch):
     d, log = deps(present=False, free=30.0)
     with pytest.raises(StepError, match="not approved"):
         prepare_pinned_task(**d, task_id=T1, allow_pull=False)
-    assert not any(isinstance(x, tuple) for x in log)
+    assert not any(isinstance(x, tuple) for x in log) and "verify_registry" not in log
 
 
 def test_a_local_image_is_never_pulled(monkeypatch):

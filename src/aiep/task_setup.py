@@ -19,7 +19,7 @@ from .container_policy import verify_inspect
 from .seed import build_component_archive, load_seed
 from .seed_source import extract_seed
 from .task_pins import PinError, add_evaluator_image, add_seed_pin, evaluator_image_pin, write_identity
-from .task_screening import image_name
+from .image_digests import load_digest_record, local_image, reference
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 MIN_FREE_BYTES = 16 * 1024**3
@@ -36,15 +36,17 @@ def _gate(free_bytes: int) -> None:
 
 
 def pin_image(client: Any, root: Path, instance_id: str, *, free_bytes: int) -> str:
-    """Record the immutable ID of the task's LOCAL image (read-only inspect; never a pull). Returns the image ID."""
+    """Record the immutable ID of the task's LOCAL image (read-only inspect; never a pull). The image is found by its verified digest reference
+    (``<repository>@<index digest>`` from ``config/image_digests.json``), never by the mutable ``:latest`` name, and its ID must equal the index digest. Returns the ID."""
     _gate(free_bytes)
-    name = image_name(instance_id)
-    try:
-        img = client.images.get(name)
-    except Exception as e:
-        raise SetupRefused(f"{name} is not available locally (nothing is pulled): {type(e).__name__}") from e
-    add_evaluator_image(root, instance_id, img.id, source=f"pinned from the local image {name} on {time.strftime('%Y-%m-%d', time.gmtime())}; "
-                                                         "the ID was recorded by scripts/pin_task_image.py after an approved pull")
+    record = load_digest_record(root, instance_id)  # DigestError if there is no verified record: no fallback
+    ref = reference(record)
+    img = local_image(client, record)  # DigestError if the local ID or platform is not the recorded one
+    if img is None:
+        raise SetupRefused(f"{ref} is not available locally (nothing is pulled)")
+    add_evaluator_image(root, instance_id, img.id, digest_reference=ref,
+                        source=f"pinned from the local image {ref} on {time.strftime('%Y-%m-%d', time.gmtime())}; the ID equals the verified index digest "
+                               "(config/image_digests.json); recorded by scripts/pin_task_image.py after an approved pull")
     return img.id
 
 
