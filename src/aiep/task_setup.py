@@ -23,7 +23,10 @@ from .image_digests import load_digest_record, local_image, reference
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 MIN_FREE_BYTES = 16 * 1024**3
-MAX_ARCHIVE_BYTES = 64 * 1024**2
+# Raw tar limit for extracting a task's /testbed. 128 MiB is validated for sympy__sympy-18621 ONLY: its /testbed streams as 104,282,112 B (99.45 MiB, of which .git is 67.3 MiB),
+# measured 2026-11-22 with a bounded read-only probe. It is NOT a universal SWE-bench limit: other tasks (matplotlib, scikit-learn ...) are unmeasured and may need more, and the agent's
+# /testbed tmpfs (192 MiB, agent_runner.py) must hold the seed plus the agent's own writes. The seed parser's content (256 MiB), per-file (64 MiB) and entry-count (200,000) limits are separate and unchanged.
+MAX_ARCHIVE_BYTES = 128 * 1024**2
 
 
 class SetupRefused(RuntimeError):

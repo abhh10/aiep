@@ -14,6 +14,10 @@ IMG = "sha256:c91459f86ed261ab81871b086d7ca2d9fe16abd2ddf374bf172edd5d991fd28b"
 @pytest.fixture
 def root(tmp_path):
     shutil.copytree(REAL / "config", tmp_path / "config")
+    # these tests are about the M1 driver's image (pytest-5227, IMG): keep only that pin so later per-task pins (e.g. a digest-pinned image with no :latest name) do not change the outcome
+    images = json.loads((tmp_path / "config" / "evaluator_images.json").read_text())
+    images["images"] = {k: v for k, v in images["images"].items() if k == "pytest-dev__pytest-5227"}
+    (tmp_path / "config" / "evaluator_images.json").write_text(json.dumps(images))
     (tmp_path / "scripts").mkdir()
     shutil.copy(REAL / "scripts" / "m1_eval.sh", tmp_path / "scripts" / "m1_eval.sh")
     (tmp_path / "src" / "aiep").mkdir(parents=True)

@@ -92,3 +92,11 @@ index digest. `prepare_pinned_task`, the pull wrapper (`scripts/pull_task_image.
 `digest_reference`. No code path pulls or looks up by tag, and nothing creates a `:latest` tag. The stock evaluator still looks its image up by the `:latest` NAME (`grading.grade`
 checks `image_id_of(<repository>:latest)`), so a digest-only image cannot be graded until a separate, approved step adds that local tag; that is deliberately not done here.
 Adding a task needs its record resolved and verified first (a `scripts/` resolver for that is not written yet; records so far were produced by hand from anonymous manifest requests).
+
+## Seed archive limit (128 MiB, validated for SymPy only)
+`task_setup.MAX_ARCHIVE_BYTES` (the raw tar limit when a task's `/testbed` is extracted into a seed) was 64 MiB, a placeholder sized for pytest-5227 (17.4 MiB). The first real preparation
+(`sympy__sympy-18621`) failed closed against it: a bounded, read-only probe (a disposable never-started container, `docker cp ... -` into a byte-counting tar reader) measured the SymPy
+`/testbed` at 104,282,112 B (99.45 MiB): 1,981 files, 358 directories, `.git` 70.6 MB (a 59.7 MB pack) and `sympy/` 28.3 MB. The limit is now 128 MiB. This is MEASURED FOR SYMPY ONLY, not a
+universal SWE-bench limit: other tasks are unmeasured (matplotlib and scikit-learn repositories are likely larger) and each needs the same probe once its image is local. The parser's own limits
+(256 MiB content, 64 MiB per file, 200,000 entries) and the agent `/testbed` tmpfs (192 MiB; SymPy content is 97.8 MiB) are unchanged. `.git` is not excluded: the agent extracts its patch with `git diff`
+against the seed HEAD and the handoff checks HEAD and its parent. Extraction still buffers the whole archive (estimated 300-400 MiB peak host memory for SymPy; not measured).

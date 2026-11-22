@@ -164,3 +164,82 @@ def test_seed_lineage_with_real_git_on_a_real_seed(tmp_path):
     seed = parse_seed_archive(buf.getvalue())
     lin = load_script("validate_handoff").seed_lineage(seed)
     assert lin == {"head": head, "parent": base}
+
+
+# ---------------------------------------------------------------- archive limit: 128 MiB, validated for SymPy only (measured 104,282,112 B = 99.45 MiB)
+import io
+import tarfile
+
+from aiep import seed as seed_module
+from aiep.agent_runner import AgentRunSpec, tmpfs_for
+from aiep.seed_source import SeedSourceError
+from test_seed import good_entries, make_tar
+
+MIB = 1024**2
+SYMPY_TAR_BYTES = 104_282_112  # measured for sympy__sympy-18621's /testbed (streamed through tarfile; nothing stored)
+
+
+def big_tar(total_payload, n_files=2):
+    """A valid /testbed tar whose total size is about ``total_payload`` bytes, spread over ``n_files`` files (each under the 64 MiB per-file limit)."""
+    entries = good_entries()
+    each = (total_payload - 60_000) // n_files
+    for i in range(n_files):
+        entries.append((f"data/blob{i}.bin", "f", b"\0" * each, 0o644))
+    entries.insert(0, ("data", "d", None, 0o755))
+    return make_tar(entries)
+
+
+def test_the_archive_limit_is_128_mib_and_the_other_limits_and_the_tmpfs_are_unchanged():
+    assert ts.MAX_ARCHIVE_BYTES == 128 * MIB
+    assert (seed_module.MAX_SEED_BYTES, seed_module.MAX_FILE_BYTES, seed_module.MAX_ENTRIES) == (256 * MIB, 64 * MIB, 200_000)
+    spec_default = AgentRunSpec.__dataclass_fields__["testbed_size"].default
+    assert spec_default == "192m" and ts.MAX_ARCHIVE_BYTES < 192 * MIB
+
+
+def test_the_agent_testbed_tmpfs_stays_exactly_192_mib():
+    import test_agent_runner as tar_
+    spec = tar_.spec_for(tar_.parse_seed_archive(make_tar(good_entries())))
+    assert "size=192m" in tmpfs_for(spec)["/testbed"]
+
+
+def test_an_archive_of_the_measured_sympy_size_is_accepted_and_pinned(root):
+    raw = big_tar(SYMPY_TAR_BYTES)
+    assert abs(len(raw) - SYMPY_TAR_BYTES) < 200_000 and len(raw) > 64 * MIB  # larger than the old limit, smaller than the new one
+    r = go(root, FakeHost(tar=raw, chunk=4 * MIB))
+    assert pins(root)[INSTANCE]["sha256"] == r["seed_sha256"] and r["entries"] > 5
+
+
+def test_an_archive_over_128_mib_is_refused_not_truncated_and_nothing_is_pinned_or_left_behind(root):
+    h = FakeHost()
+    block = b"\0" * MIB
+    h.chunks = [block] * 128 + [b"x"]  # 128 MiB + 1 byte, referencing one block: no big allocation
+    with pytest.raises(SeedSourceError, match="exceeds"):
+        go(root, h)
+    assert INSTANCE not in pins(root) and not list((root / ".cache" / "seeds" / INSTANCE).glob("seed*"))
+    assert [c for c, _ in h.removed]  # the seed-source container was still removed
+
+
+def test_exactly_128_mib_is_not_over_the_limit():
+    from aiep.seed_source import read_bounded
+    assert len(read_bounded([b"\0" * MIB] * 128, ts.MAX_ARCHIVE_BYTES)) == 128 * MIB
+    with pytest.raises(SeedSourceError):
+        read_bounded([b"\0" * MIB] * 128 + [b"x"], ts.MAX_ARCHIVE_BYTES)
+
+
+def test_the_per_file_limit_still_applies_inside_the_larger_archive(root):
+    raw = big_tar(66 * MIB, n_files=1)  # one 65.9 MiB file: under the archive limit, over the 64 MiB per-file limit
+    assert len(raw) < ts.MAX_ARCHIVE_BYTES
+    with pytest.raises(seed_module.SeedError, match="per-file"):
+        go(root, FakeHost(tar=raw, chunk=4 * MIB))
+    assert INSTANCE not in pins(root) and not list((root / ".cache" / "seeds" / INSTANCE).glob("seed*"))
+
+
+def test_the_entry_count_and_total_content_limits_still_apply(root, monkeypatch):
+    monkeypatch.setattr(seed_module, "MAX_ENTRIES", 3)
+    with pytest.raises(seed_module.SeedError, match="too many"):
+        go(root, FakeHost())
+    monkeypatch.setattr(seed_module, "MAX_ENTRIES", 200_000)
+    monkeypatch.setattr(seed_module, "MAX_SEED_BYTES", 500)
+    with pytest.raises(seed_module.SeedError, match="total size"):
+        go(root, FakeHost())
+    assert INSTANCE not in pins(root) and not list((root / ".cache" / "seeds" / INSTANCE).glob("seed*"))

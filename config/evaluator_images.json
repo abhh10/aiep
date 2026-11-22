@@ -6,6 +6,12 @@
       "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5227:latest",
       "image_id": "sha256:c91459f86ed261ab81871b086d7ca2d9fe16abd2ddf374bf172edd5d991fd28b",
       "source": "docs/M1_RESULTS.md section 4 (recorded in M1 runs)"
+    },
+    "sympy__sympy-18621": {
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-18621:latest",
+      "image_id": "sha256:6ceb7424d50163dbea48b63200bb124317e530dd314cb29e1d98d8cafdc1b411",
+      "source": "pinned from the local image swebench/sweb.eval.x86_64.sympy_1776_sympy-18621@sha256:6ceb7424d50163dbea48b63200bb124317e530dd314cb29e1d98d8cafdc1b411 on 2026-11-22; the ID equals the verified index digest (config/image_digests.json); recorded by scripts/pin_task_image.py after an approved pull",
+      "digest_reference": "swebench/sweb.eval.x86_64.sympy_1776_sympy-18621@sha256:6ceb7424d50163dbea48b63200bb124317e530dd314cb29e1d98d8cafdc1b411"
     }
   }
 }

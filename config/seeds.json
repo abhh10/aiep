@@ -9,6 +9,13 @@
       "entries": 689,
       "image_id": "sha256:c91459f86ed261ab81871b086d7ca2d9fe16abd2ddf374bf172edd5d991fd28b",
       "source": "scripts/extract_pytest5227_seed.py, 2026-11-19; injected and verified by scripts/inject_pytest5227_seed_check.py"
+    },
+    "sympy__sympy-18621": {
+      "directory": ".cache/seeds/sympy__sympy-18621",
+      "sha256": "48e499bb5f4732417b9911f4110242ba41c14ac5d2ffb1be7fdcc212ce2a23af",
+      "head": "3d7152af304fe9b8d75fd1f006cdb9481e3e2c0e",
+      "entries": 2338,
+      "image_id": "sha256:6ceb7424d50163dbea48b63200bb124317e530dd314cb29e1d98d8cafdc1b411"
     }
   }
 }

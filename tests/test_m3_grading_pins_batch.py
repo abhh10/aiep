@@ -120,10 +120,20 @@ def test_pins_never_overwrite(tmp_path):
     assert st["image_pinned"] and st["seed_pinned"] and not st["runnable"] and "agent_identity" in st["missing"]
 
 
+PREPARED_TASKS = {"sympy__sympy-18621"}  # image (digest-pinned), seed and identity are genuinely pinned and verified; add a task here only when it really is
+
+
 def test_repo_unpinned_tasks_not_runnable():
     doc = json.loads((ROOT / "config/experiments/m3-pilot-v2.json").read_text())
-    for t in doc["preregistration"]["tasks"]:
-        assert not tp.pin_status(ROOT, t["instance_id"])["runnable"]
+    ids = [t["instance_id"] for t in doc["preregistration"]["tasks"]]
+    assert PREPARED_TASKS <= set(ids)
+    for tid in ids:
+        status = tp.pin_status(ROOT, tid)
+        if tid in PREPARED_TASKS:
+            assert status["runnable"] and status["missing"] == [], status
+        else:
+            assert not status["runnable"], tid
+    assert len([t for t in ids if t not in PREPARED_TASKS]) == 7
 
 
 # ---------- batch
