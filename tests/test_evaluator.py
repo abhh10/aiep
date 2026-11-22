@@ -315,11 +315,35 @@ def test_main_policy_violation_in_harness_exits_refused_and_uninstalls(env):
 
 
 def test_m1_files_are_untouched():
+    """The M1 record stays intact. src/aiep/stock_eval.py is checked separately below: it gained the evaluator image guard (an approved change), nothing else."""
     import subprocess
 
     out = subprocess.run(
         ["git", "diff", "--stat", "9c84d4d", "--",
-         "src/aiep/stock_eval.py", "scripts/m1_eval.sh", "tests/test_stock_eval.py", "docs/M1_RESULTS.md"],
+         "scripts/m1_eval.sh", "tests/test_stock_eval.py", "docs/M1_RESULTS.md"],
         cwd=REAL, capture_output=True, text=True,
     )
     assert out.returncode == 0 and out.stdout.strip() == ""
+
+
+def test_stock_eval_keeps_its_m1_container_hardening_byte_for_byte_and_only_gained_the_image_guard():
+    """The M1 evaluator's behaviour that the recorded runs depend on (constants, harden_create_kwargs, install_shim) is identical to the M1 commit; the image guard was added."""
+    import ast
+    import subprocess
+
+    old = subprocess.run(["git", "show", "9c84d4d:src/aiep/stock_eval.py"], cwd=REAL, capture_output=True, text=True)
+    assert old.returncode == 0
+    new_src = (REAL / "src" / "aiep" / "stock_eval.py").read_text()
+
+    def nodes(src):
+        out = {}
+        for n in ast.parse(src).body:
+            if isinstance(n, (ast.FunctionDef, ast.ClassDef)):
+                out[n.name] = ast.dump(n)
+            elif isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name):
+                out[n.targets[0].id] = ast.dump(n)
+        return out
+    o, n = nodes(old.stdout), nodes(new_src)
+    for name in ("MEM_LIMIT", "PIDS_LIMIT", "NANO_CPUS", "_FORBIDDEN", "harden_create_kwargs", "install_shim"):
+        assert o[name] == n[name], f"{name} differs from the M1 version"
+    assert {"install_image_guard", "ImageAcquisitionBlocked"} <= set(n) and "main" in n

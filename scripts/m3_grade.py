@@ -6,7 +6,7 @@
 `noop` first writes the deterministic no-op control predictions (see scripts/m3_noop_predictions.py) to runs/m3/<run_id>.noop.jsonl and grades them as a noop control.
 
 Gates (unchanged): 16 GiB free to start, hard stop below 12 GiB, evaluator image ID must equal its pin. Hugging Face is forced offline; the evaluation container's own
-`pip install -e .` is the only network use. Exit codes: 0 graded (the verdict is in meta.json, NOT the exit code), 1 grading invalid, 2 refused.
+`pip install -e .` is the only network use. Exit codes: 0 graded (the verdict is in meta.json, NOT the exit code), 1 grading invalid, 2 refused, 3 image policy violation (the evaluator tried to pull, build or load an image).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from aiep.grading import GradingRefused, grade, write_noop_predictions  # noqa: E402
+from aiep.grading import GradingRefused, ImagePolicyViolation, grade, write_noop_predictions  # noqa: E402
 from aiep.task_pins import evaluator_image_pin  # noqa: E402
 
 
@@ -72,6 +72,9 @@ def main(argv: list[str] | None = None, *, root: Path = ROOT, grade_fn=None, pin
             predictions = str(write_noop_predictions(target, args.instance_id))
         out = (grade_fn or grade)(args.instance_id, predictions, args.run_id, kind=kind, root=root, expected_image=pin,
                     free_gib=lambda: shutil.disk_usage(root).free / 1024**3, image_id_of=real_image_id, run_process=run_process, kill_containers=real_kill)
+    except ImagePolicyViolation as e:
+        print(f"IMAGE POLICY VIOLATION: {e}", file=sys.stderr)
+        return 3
     except (GradingRefused, FileExistsError) as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2

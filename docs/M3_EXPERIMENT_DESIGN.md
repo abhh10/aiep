@@ -100,3 +100,13 @@ Adding a task needs its record resolved and verified first (a `scripts/` resolve
 universal SWE-bench limit: other tasks are unmeasured (matplotlib and scikit-learn repositories are likely larger) and each needs the same probe once its image is local. The parser's own limits
 (256 MiB content, 64 MiB per file, 200,000 entries) and the agent `/testbed` tmpfs (192 MiB; SymPy content is 97.8 MiB) are unchanged. `.git` is not excluded: the agent extracts its patch with `git diff`
 against the seed HEAD and the handoff checks HEAD and its parent. Extraction still buffers the whole archive (estimated 300-400 MiB peak host memory for SymPy; not measured).
+
+## Evaluator image policy (fail closed)
+The upstream harness falls back to `client.images.pull(test_spec.image)` when its image is missing locally. `aiep.stock_eval.main` now installs `install_image_guard()` BEFORE importing or running the
+harness: `ImageCollection.pull/build/load` and the low-level `pull`, `build`, `load_image`, `import_image*` raise `ImageAcquisitionBlocked`, a `BaseException` (the harness wraps container creation in
+`except Exception`, which would otherwise turn the refusal into an ordinary evaluation error). The guard writes `IMAGE_POLICY_VIOLATION.txt`, `main` exits 97, and `aiep.grading.grade` raises
+`ImagePolicyViolation` (`scripts/m3_grade.py` exits 3); lookups and container creation are untouched, and the patches are removed when `main` returns. `grading.grade` (hence `m3_grade.py` and the batch) and
+`scripts/m1_eval.sh` all run `python -m aiep.stock_eval`, so all are guarded; the `grade()` image-ID check remains as a second, earlier layer. Remaining limits: (1) running
+`swebench.harness.run_evaluation` directly is not a supported path and is not guarded; (2) the gated hardened `aiep.evaluator` (attestation required, blocked today, never run) has its OWN refusals of
+`ImageCollection.pull/build/load/push` only: it does not cover the low-level API and refuses with an ordinary exception that the harness's `except Exception` would convert, so it should adopt this
+guard before it is ever used; (3) `images.tag`, `remove_image` and `commit` are not blocked (the harness does not use them).

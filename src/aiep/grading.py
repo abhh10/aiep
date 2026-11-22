@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .stock_eval import EXIT_IMAGE_POLICY, POLICY_MARKER
+
 START_GATE_GIB = 16.0
 HARD_STOP_GIB = 12.0
 EXPECTED_ENV = {"HF_HUB_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1"}  # the evaluator never talks to the hub; pip inside the container is the only network use
@@ -33,6 +35,10 @@ _NOOP_BLOB = hashlib.sha1(b"blob %d\0" % (len(NOOP_CONTENT) + 1) + (NOOP_CONTENT
 
 class GradingRefused(RuntimeError):
     """A precondition failed (disk gate, image ID, run id reuse): nothing was started."""
+
+
+class ImagePolicyViolation(RuntimeError):
+    """The evaluator process tried to pull, build or load an image (``aiep.stock_eval``'s image guard fired). The grading is void and nothing may be concluded from it."""
 
 
 @dataclass
@@ -168,6 +174,11 @@ def grade(instance_id: str, predictions: str, run_id: str, *, kind: str, root: P
     finally:
         state["stop"] = True
         t.join(timeout=5)
+    violation = (run_dir / POLICY_MARKER).read_text() if (run_dir / POLICY_MARKER).exists() else None
+    if violation is not None or code == EXIT_IMAGE_POLICY:  # the evaluator tried to acquire an image: loud, never read as a model or harness failure
+        meta.update(exit_code=code, hard_stopped=state["hard"], ended_unix=now(), summary={"valid": False, "image_policy_violation": True, "detail": violation or "exit code 97"})
+        (run_dir / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
+        raise ImagePolicyViolation(f"{run_id}: the evaluator tried to pull, build or load an image (exit {code}): {(violation or '').strip() or 'see ' + str(run_dir)}")
     harness, inst = {}, {}
     for p in sorted((run_dir / "reports").glob("*.json")):
         harness = json.loads(p.read_text())
