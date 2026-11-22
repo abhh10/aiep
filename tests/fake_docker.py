@@ -38,6 +38,10 @@ from aiep.container_policy import READY_SCRIPT
 from aiep.seed import VERIFY_SCRIPT
 
 
+_AGENT_ROUTES = (b"Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                 b"eth0\t00011EAC\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n")  # 172.30.1.0/24, no default route
+
+
 def frame(kind: int, data: bytes) -> bytes:
     return bytes([kind, 0, 0, 0]) + struct.pack(">I", len(data)) + data
 
@@ -159,22 +163,22 @@ class FakeContainerFS:
     """Maps container paths (/testbed, /opt/aiep, ...) to real temp directories and serves execs."""
 
     def __init__(self, base: Path, agent: FakeAgent | None = None, git_env: dict | None = None,
-                 python: str = "/opt/miniconda3/bin/python", owner: tuple[int, int] | None = None,
+                 python: str = "/opt/miniconda3/bin/python", owner: tuple[int, int] | None = (1000, 1000),
                  account: tuple[str, int, int, str] | None = ("nonroot", 1000, 1000, "/home/nonroot")):
         self.python = python
         # (name, uid, gid, home) of the container user's passwd entry; None means the image has no such entry
         self.account = account
         self.gateway_alive = threading.Event()  # set while the fake gateway process "runs"
         self.gateway_listening = False
-        self.files: dict[str, bytes] = {}  # virtual files for /bin/cat (stop file, ledger)
-        self.owner = owner  # if set, the listing reports this uid:gid instead of the real one (simulated tmpfs owner)
+        self.files: dict[str, bytes] = {"/proc/net/route": _AGENT_ROUTES}  # virtual files for /bin/cat (stop file, ledger, the container's route table)
+        self.owner = owner  # the listing reports this uid:gid (the simulated tmpfs owner; default is the agent identity 1000:1000); None reports the real file owner
         self.gateway_started: list[list[str]] = []
         self.started_after_listings: int | None = None
         self.listings = 0  # verification listings served so far (lets tests prove verify-before-start)
         self.base = Path(base)
         self.agent = agent or FakeAgent()
         self.dirs: dict[str, Path] = {}
-        for mount in ("/testbed", "/opt/aiep", "/opt/aiep-gw", "/tmp", "/home/agent"):
+        for mount in ("/testbed", "/opt/aiep", "/opt/aiep-gw", "/opt/aiep-proxy", "/tmp", "/home/agent"):
             d = self.base / mount.strip("/").replace("/", "_")
             d.mkdir(parents=True, exist_ok=True)
             self.dirs[mount] = d
@@ -203,10 +207,11 @@ class FakeContainerFS:
             return ExecResult(stdout=data)
         if READY_SCRIPT in argv:
             return ExecResult(exit_code=0 if self.gateway_listening else 1)
-        if VERIFY_SCRIPT in argv or argv[1:] == ["-m", "aiep.gateway"]:
+        started_module = argv[1:] in (["-m", "aiep.gateway"], ["-m", "aiep.egress_proxy"])
+        if VERIFY_SCRIPT in argv or started_module:
             if binary != self.python:
                 return ExecResult(stderr=f"exec: {binary}: no such file or directory".encode(), exit_code=127)
-            if argv[1:] == ["-m", "aiep.gateway"]:
+            if started_module:
                 self.gateway_started.append(argv)
                 self.started_after_listings = self.listings
                 self.gateway_listening = True

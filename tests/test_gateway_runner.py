@@ -21,7 +21,7 @@ OWNER = (10001, 10001)  # TEST-ONLY: the real gateway uid:gid is unresolved (con
 def gctx(**kw):
     kw.setdefault("uid", OWNER[0])
     kw.setdefault("gid", OWNER[1])
-    return GatewayContext(agent_network="aiep-agent-net", egress_network="aiep-egress-net",
+    return GatewayContext(agent_network="aiep-agent-net", proxy_network="aiep-proxy-net",
                           image_id="sha256:" + "9" * 64, python=PY, **kw)
 
 

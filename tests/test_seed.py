@@ -358,3 +358,24 @@ def test_verify_script_is_plain_stdlib_syntax_the_images_interpreter_can_parse()
     import ast
     ast.parse(VERIFY_SCRIPT, feature_version=(3, 8))
     assert "import hashlib, json, os, stat, sys" in VERIFY_SCRIPT
+
+
+def test_component_ceiling_is_explicit_and_still_enforced():
+    big = b"x" * 1000
+    assert build_component_archive({"f": (big, 0o755)}, max_file_bytes=1000).manifest.entries
+    with pytest.raises(SeedError, match="too large"):
+        build_component_archive({"f": (big, 0o755)}, max_file_bytes=999)
+    for bad in (0, -1, True, 1.5, None):
+        with pytest.raises(SeedError):
+            build_component_archive({"f": (b"x", 0o755)}, max_file_bytes=bad)
+    import inspect
+    assert inspect.signature(build_component_archive).parameters["max_file_bytes"].default == S.MAX_FILE_BYTES * 4  # default unchanged
+
+
+def test_verify_archive_streams_large_files_and_still_detects_tampering():
+    body = os.urandom(2_500_000)  # more than two 1 MiB read blocks
+    seed = build_component_archive({"claude": (body, 0o755)})
+    verify_archive(seed)
+    broken = S.Seed(seed.manifest, seed.tar.replace(body[1_500_000:1_500_016], b"\x00" * 16))
+    with pytest.raises(SeedError):
+        verify_archive(broken)

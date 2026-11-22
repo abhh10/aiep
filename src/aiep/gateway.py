@@ -8,12 +8,11 @@ from responses, enforces a spend budget, and pins one model.
 What it is not: a general proxy. There is no CONNECT, no absolute-URI or
 caller-chosen host, no redirect following, no other paths or methods.
 
-SECURITY LIMIT (read this): the restriction on *outbound* connections is
-**enforced by this code, not by a firewall**. The gateway container will sit on an
-egress-capable Docker network (Phase 2), so a bug or compromise of this process
-could connect elsewhere. Mitigations are the code-level controls below, a minimal
-attack surface, a non-root read-only container, and the tests. They are not a
-substitute for network-level egress filtering, which this design does not have.
+NETWORK ENFORCEMENT: the gateway container is attached ONLY to internal Docker networks (the agent network and the proxy network), which have
+no default route, so it cannot open a connection to the internet, the LAN or the macOS host by itself. Its one upstream, ``api.anthropic.com:443``,
+is reached through a separate restricted CONNECT proxy container (``aiep.egress_proxy``) that is the only member of the egress network. The code
+controls below are therefore defence in depth, not the boundary. If the proxy cannot be reached or refuses, the request FAILS (502): there is
+no direct fallback, and ``main`` refuses to start without a proxy address.
 
 Controls (each has tests):
 * Host header must be one of an explicit allowlist (defeats DNS rebinding and Host
@@ -21,10 +20,11 @@ Controls (each has tests):
 * Request target must be origin-form and exactly ``/v1/messages`` or
   ``/v1/messages/count_tokens`` (query empty or ``beta=true`` only).
 * POST only; ``Content-Length`` required and capped; chunked requests refused.
-* Upstream host/port are constants of ``UpstreamConfig``; the name is resolved once
-  per request, every address must be public (no loopback/private/link-local), and
-  the connection is made to that exact address with certificate and hostname
-  verification (``ssl`` default context, CERT_REQUIRED, check_hostname).
+* Upstream host/port are constants of ``UpstreamConfig``. In production the gateway opens a TCP connection to the proxy, asks it for
+  ``CONNECT <upstream host>:443`` (the proxy resolves the name, validates every address as public and pins one), requires a ``200``, and then
+  performs the TLS handshake ITSELF through the tunnel with certificate and hostname verification (``ssl`` default context, CERT_REQUIRED,
+  check_hostname). The proxy never sees plaintext. Without a proxy (tests only) the name is resolved here, every address must be public, and the
+  connection is made to that exact address.
 * Upstream 3xx is never followed and never passed on.
 * Response size is capped.
 * Requests are inspected, never rewritten: a body naming any model other than the
@@ -60,6 +60,7 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from .ledger import Ledger
+from .listen import default_route_interfaces, parse_listen  # noqa: F401  (re-exported: the listen rules live in aiep.listen)
 from .pricing import Pricing, Usage, compute_cost, load_pricing, usage_from_api
 
 MESSAGES_PATH = "/v1/messages"
@@ -104,6 +105,9 @@ class UpstreamConfig:
     resolver: Callable[[str, int], list[str]] | None = None
     connect_timeout: float = 10.0
     read_timeout: float = 600.0
+    proxy_host: str | None = None  # the restricted egress proxy (production: always set; ``main`` refuses to start without it)
+    require_proxy: bool = False  # production sets True: ``open_upstream`` then refuses to build a direct connection even if proxy_host were lost
+    proxy_port: int = 3128
 
 
 @dataclass
@@ -153,7 +157,7 @@ def address_is_public(addr: str) -> bool:
 
 
 class _PinnedTLSConnection(http.client.HTTPSConnection):
-    """HTTPS to a fixed, pre-validated IP, verifying the certificate against the hostname."""
+    """HTTPS to a fixed, pre-validated IP, verifying the certificate against the hostname (test/no-proxy path only)."""
 
     def __init__(self, host: str, port: int, ip: str, context: ssl.SSLContext,
                  read_timeout: float, connect_timeout: float):
@@ -171,6 +175,57 @@ class _PinnedTLSConnection(http.client.HTTPSConnection):
             raise
 
 
+MAX_PROXY_REPLY_BYTES = 4096
+
+
+def _proxy_tunnel(proxy_ip: str, proxy_port: int, host: str, port: int, connect_timeout: float) -> socket.socket:
+    """TCP to the proxy, ``CONNECT host:port``, and a ``200`` or ``UpstreamError``. The returned socket is a raw tunnel to the upstream.
+
+    Nothing else is attempted if this fails: no direct connection, no retry through another route.
+    """
+    sock = socket.create_connection((proxy_ip, proxy_port), connect_timeout)
+    try:
+        sock.settimeout(connect_timeout)
+        sock.sendall(f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n".encode("ascii"))
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            if len(buf) > MAX_PROXY_REPLY_BYTES:
+                raise UpstreamError("proxy_reply_too_large")
+            chunk = sock.recv(1024)
+            if not chunk:
+                raise UpstreamError("proxy_closed_without_reply")
+            buf += chunk
+        head, _, rest = buf.partition(b"\r\n\r\n")
+        status = head.split(b"\r\n", 1)[0].split(b" ")
+        if len(status) < 2 or status[0] not in (b"HTTP/1.1", b"HTTP/1.0") or status[1] != b"200":
+            raise UpstreamError("proxy_refused")
+        if rest:  # the upstream speaks only after our ClientHello, so nothing may arrive first
+            raise UpstreamError("proxy_unexpected_data")
+        return sock
+    except BaseException:
+        sock.close()
+        raise
+
+
+class _ProxiedTLSConnection(http.client.HTTPSConnection):
+    """HTTPS to ``host`` through the restricted proxy. TLS is performed here, end to end, with certificate and hostname verification."""
+
+    def __init__(self, host: str, port: int, proxy_ip: str, proxy_port: int, context: ssl.SSLContext,
+                 read_timeout: float, connect_timeout: float):
+        super().__init__(host, port, timeout=read_timeout, context=context)
+        self._proxy = (proxy_ip, proxy_port)
+        self._connect_timeout = connect_timeout
+
+    def connect(self):
+        sock = _proxy_tunnel(*self._proxy, self.host, self.port, self._connect_timeout)
+        sock.settimeout(self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        except BaseException:
+            sock.close()
+            raise
+
+
 class Gateway:
     def __init__(self, config: GatewayConfig):
         self.cfg = config
@@ -180,7 +235,14 @@ class Gateway:
         self.unauthenticated_refusals = 0  # counted always, written to the ledger only up to a cap
         self.internal_errors = 0
         self.stop_file_errors = 0
+        self._rid = 0
         self.slots = threading.BoundedSemaphore(config.max_concurrent)
+
+    def next_request_id(self) -> str:
+        """A per-run request id. A ``forwarding`` ledger line and the line that finishes the request carry the same id."""
+        with self._lock:
+            self._rid += 1
+            return f"r{self._rid}"
 
     # ---- stop state ----
     @property
@@ -233,8 +295,24 @@ class Gateway:
                 ipaddress.ip_address(a)  # still must be a literal address (ValueError surfaces as 502 below)
         return addrs[0]
 
+    def _proxy_address(self) -> str:
+        """The proxy's address, resolved from its configured name. It must be a literal address; there is no other route to fall back to."""
+        up = self.cfg.upstream
+        try:
+            addrs = list(socket.getaddrinfo(up.proxy_host, up.proxy_port, family=socket.AF_INET, type=socket.SOCK_STREAM))
+        except OSError:
+            raise UpstreamError("proxy_dns_failure") from None
+        if not addrs:
+            raise UpstreamError("proxy_dns_failure")
+        return addrs[0][4][0]
+
     def open_upstream(self) -> http.client.HTTPSConnection:
         up = self.cfg.upstream
+        if up.require_proxy and not up.proxy_host:
+            raise UpstreamError("proxy_required")  # never a silent direct connection in production
+        if up.proxy_host:  # production: the only way out is the proxy; the gateway does not resolve or dial the upstream itself
+            return _ProxiedTLSConnection(up.host, up.port, self._proxy_address(), up.proxy_port, self._ssl_context(),
+                                         up.read_timeout, up.connect_timeout)
         ip = self._pick_address()
         return _PinnedTLSConnection(up.host, up.port, ip, self._ssl_context(), up.read_timeout, up.connect_timeout)
 
@@ -366,6 +444,7 @@ def _make_handler(gw: Gateway):
                     headers: dict[str, str] | None = None, **entry) -> None:
             if stop:
                 gw.stop(stop)
+            entry = {**self._req_meta, **entry}  # requested max_tokens / stream (when the body was parsed) and the request id
             if status in (400, 401, 421) and not self._authenticated:
                 with gw._lock:
                     gw.unauthenticated_refusals += 1
@@ -443,6 +522,7 @@ def _make_handler(gw: Gateway):
                     raise ValueError
             except ValueError:
                 return self._refuse(400, "invalid_request_error", "body must be a JSON object")
+            self._req_meta = _request_meta(doc, cfg.max_tokens_cap)
             if doc.get("model") != cfg.model:
                 seen = doc.get("model") if isinstance(doc.get("model"), str) and len(doc["model"]) <= 100 else "?"
                 return self._refuse(403, "permission_error", "model not allowed", stop="model_violation",
@@ -456,7 +536,7 @@ def _make_handler(gw: Gateway):
             ):
                 return self._refuse(400, "invalid_request_error", "max_tokens missing or above the cap")
             # 8. Forward.
-            self._forward(parts, body, mt if isinstance(mt, int) else 0, t0)
+            self._forward(parts, body, mt if isinstance(mt, int) and not isinstance(mt, bool) else 0, t0)
 
         def _forward(self, parts, body: bytes, max_tokens: int, t0: float) -> None:
             if not gw.slots.acquire(timeout=cfg.queue_timeout_s):
@@ -481,7 +561,13 @@ def _make_handler(gw: Gateway):
                 if low in _FORWARD_REQUEST_EXACT or low.startswith(_FORWARD_REQUEST_PREFIX):
                     headers[name] = self.headers[name]
             target = parts.path + (f"?{parts.query}" if parts.query else "")
-            entry = {"endpoint": parts.path, "model": cfg.model, "bytes_in": len(body), "method": "POST"}
+            rid = gw.next_request_id()
+            self._req_meta = {**self._req_meta, "rid": rid}
+            entry = {"endpoint": parts.path, "model": cfg.model, "bytes_in": len(body), "method": "POST", **self._req_meta}
+            # Written (and fsynced) BEFORE anything is sent upstream. The line that finishes this request carries the same ``rid``; a
+            # ``forwarding`` line with no finishing line means a request that may have been billed upstream and was never metered here
+            # (the gateway was killed, or is still serving it): the orchestrator drains these before stopping the gateway and records any left.
+            cfg.ledger.record({**entry, "outcome": "forwarding"})
             conn = resp = None
             try:
                 try:
@@ -595,13 +681,14 @@ def _make_handler(gw: Gateway):
         def _safe(self) -> None:
             self._responded = False
             self._body_consumed = False
+            self._req_meta: dict = {}
             try:
                 self._handle()
             except Exception as e:  # fail closed, say nothing about internals
                 try:
                     with gw._lock:
                         gw.internal_errors += 1
-                    cfg.ledger.record({"outcome": "internal_error", "error_type": type(e).__name__})
+                    cfg.ledger.record({"outcome": "internal_error", "error_type": type(e).__name__, **self._req_meta})
                     if not self._responded:
                         self._send(500, _error_body("api_error", "internal gateway error"))
                 except Exception:
@@ -612,6 +699,16 @@ def _make_handler(gw: Gateway):
         do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = do_OPTIONS = do_CONNECT = _safe
 
     return Handler
+
+
+def _request_meta(doc: dict, cap: int) -> dict:
+    """What the client asked for, recorded in every ledger line about the request (accepted or refused): the requested ``max_tokens``
+    (the value if it is an int, else the name of its type, so a wrong type is visible too), the configured cap, and the stream mode."""
+    mt = doc.get("max_tokens")
+    stream = doc.get("stream")
+    return {"requested_max_tokens": mt if isinstance(mt, int) and not isinstance(mt, bool) else type(mt).__name__,
+            "max_tokens_cap": cap,
+            "stream": stream if isinstance(stream, bool) else (None if stream is None else type(stream).__name__)}
 
 
 def _bad_tools(doc: dict) -> str | None:
@@ -632,19 +729,58 @@ def _bad_tools(doc: dict) -> str | None:
     return None
 
 
-# ---------------------------------------------------------------------------------------
-def main(argv: list[str] | None = None) -> int:
-    """Production entry point. Configuration comes only from the environment and the repo's config files."""
+def parse_max_concurrent(value: str | None) -> int:
+    """``AIEP_MAX_CONCURRENT``: requests in flight upstream. Unset keeps the original default of 2; the M3 pilot sets 1 (one concurrent request per agent), which
+    also bounds the budget overshoot to ONE request's upper bound. Anything but a plain integer 1..4 is refused."""
+    if value is None or value == "":
+        return 2
+    if not (value.isascii() and value.isdigit() and 1 <= int(value) <= 4 and str(int(value)) == value):
+        raise ValueError("AIEP_MAX_CONCURRENT must be an integer from 1 to 4")
+    return int(value)
+
+
+def production_upstream(host: str, proxy: str) -> UpstreamConfig:
+    """``AIEP_UPSTREAM_PROXY`` is ``<name>:<port>``; the upstream host itself comes only from config/experiment.json."""
+    name, _, port = proxy.rpartition(":")
+    if not name or not port.isascii() or not port.isdigit() or not (0 < int(port) < 65536):
+        raise ValueError("AIEP_UPSTREAM_PROXY must be <host>:<port>")
+    return UpstreamConfig(host=host, proxy_host=name, proxy_port=int(port), require_proxy=True)
+
+
+def main(argv: list[str] | None = None, *, upstream: UpstreamConfig | None = None) -> int:
+    """Production entry point. Configuration comes only from the environment and the repo's config files.
+
+    ``upstream`` is a TEST SEAM, a keyword-only Python argument that cannot be set from the environment or the command line: the runtime
+    validation passes a local mock server's ``UpstreamConfig`` here. ``python -m aiep.gateway`` never passes it, so production always
+    talks to the host in ``config/experiment.json`` with default TLS verification and public-address checks.
+    """
     env = os.environ
-    missing = [k for k in ("AIEP_UPSTREAM_API_KEY", "AIEP_RUN_TOKEN", "AIEP_BUDGET_USD",
-                           "AIEP_ALLOWED_HOSTS", "AIEP_LISTEN", "AIEP_LEDGER_PATH") if not env.get(k)]
+    needed = ["AIEP_UPSTREAM_API_KEY", "AIEP_RUN_TOKEN", "AIEP_BUDGET_USD", "AIEP_ALLOWED_HOSTS", "AIEP_LISTEN", "AIEP_LEDGER_PATH"]
+    if upstream is None:
+        needed.append("AIEP_UPSTREAM_PROXY")  # production has no direct route: a missing proxy is a startup error, never a fallback
+    missing = [k for k in needed if not env.get(k)]
     if missing:
         print(f"missing environment: {', '.join(missing)}", file=sys.stderr)
         return 2
     root = Path(__file__).resolve().parents[2]
     experiment = json.loads((root / "config" / "experiment.json").read_text())
     pricing = load_pricing(root / "config" / "model_pricing.json", experiment["model"])
-    host, _, port = env["AIEP_LISTEN"].rpartition(":")
+    try:
+        hosts, port = parse_listen(env["AIEP_LISTEN"])
+    except (ValueError, OSError) as e:
+        print(f"invalid AIEP_LISTEN: {e}", file=sys.stderr)
+        return 2
+    try:
+        parse_max_concurrent(env.get("AIEP_MAX_CONCURRENT"))
+    except ValueError as e:
+        print(f"invalid AIEP_MAX_CONCURRENT: {e}", file=sys.stderr)
+        return 2
+    if upstream is None:
+        try:
+            upstream = production_upstream(experiment["upstream_host"], env["AIEP_UPSTREAM_PROXY"])
+        except ValueError as e:
+            print(f"invalid AIEP_UPSTREAM_PROXY: {e}", file=sys.stderr)
+            return 2
     gateway = Gateway(GatewayConfig(
         run_token=env["AIEP_RUN_TOKEN"],
         upstream_key=env["AIEP_UPSTREAM_API_KEY"],
@@ -654,11 +790,14 @@ def main(argv: list[str] | None = None) -> int:
         stop_file=Path(env["AIEP_STOP_FILE"]) if env.get("AIEP_STOP_FILE") else None,
         allowed_hosts=frozenset(h.strip().lower() for h in env["AIEP_ALLOWED_HOSTS"].split(",") if h.strip()),
         budget_usd=Decimal(env["AIEP_BUDGET_USD"]),
-        upstream=UpstreamConfig(host=experiment["upstream_host"]),  # defaults only; no overrides
+        max_concurrent=parse_max_concurrent(env.get("AIEP_MAX_CONCURRENT")),
+        upstream=upstream,
     ))
-    server = gateway.make_server(host, int(port))
+    servers = [gateway.make_server(h, port) for h in hosts]
+    for extra in servers[:-1]:
+        threading.Thread(target=extra.serve_forever, daemon=True).start()
     try:
-        server.serve_forever()
+        servers[-1].serve_forever()
     except KeyboardInterrupt:
         pass
     return 0

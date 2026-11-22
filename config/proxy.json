@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "status": "verified",
+  "note": "The restricted egress proxy runs from the SAME pinned python image as the gateway (config/gateway_image.json: digest, image ID, interpreter, declared volumes), as its own numeric identity. It holds no secret. Port and uid:gid are fixed here and checked by tests for distinctness from the gateway (10001) and the agent (config/agent_identity.json).",
+  "uid": 10002,
+  "gid": 10002,
+  "port": 3128
+}

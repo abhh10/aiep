@@ -840,3 +840,83 @@ def test_upstream_socket_is_closed_even_when_the_response_body_was_not_fully_rea
     r.request()
     assert r.ledger()[-1]["outcome"] == "response_too_large"  # the gateway stopped reading mid-body
     assert len(tls) == 1 and tls[0].fileno() == -1, "the TLS socket stayed open behind the unread response"
+
+
+# ====================== audit sprint: requested max_tokens / stream in the ledger, and the in-flight marker ======================
+def _by_rid(entries, rid):
+    return [e for e in entries if e.get("rid") == rid]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_every_forwarded_request_records_requested_max_tokens_stream_and_the_cap_on_both_its_lines(rig, streaming):
+    r = rig()
+    if streaming:
+        r.up.set_behavior(lambda h, q: stream(h, sse_events()))
+    r.request(body=body_for(max_tokens=777, stream=streaming))
+    entries = r.ledger()
+    start, done = [e for e in entries if e.get("rid") == "r1"]
+    assert start["outcome"] == "forwarding" and done["outcome"] == "ok" and start["seq"] < done["seq"]
+    for e in (start, done):
+        assert e["requested_max_tokens"] == 777 and e["stream"] is streaming and e["max_tokens_cap"] == gwmod.MAX_TOKENS_CAP
+    assert start["cost_usd_computed"] is None and "usage" not in start  # the start line never changes the running spend
+
+
+def test_refusals_record_what_was_asked_for_too(rig):
+    r = rig(max_tokens_cap=100)
+    r.request(body=body_for(max_tokens=101, stream=True))
+    e = r.ledger()[-1]
+    assert e["outcome"] == "refused" and e["status"] == 400
+    assert e["requested_max_tokens"] == 101 and e["stream"] is True and e["max_tokens_cap"] == 100
+    r.request(body=body_for(model="claude-opus-9", max_tokens=5))
+    e = r.ledger()[-1]
+    assert e["reason"] == "model not allowed" and e["requested_max_tokens"] == 5 and e["stream"] is None
+
+
+@pytest.mark.parametrize("mt,shown", [("10", "str"), (True, "bool"), (1.5, "float"), (None, "NoneType")])
+def test_a_wrongly_typed_max_tokens_is_recorded_as_its_type_not_as_a_value(rig, mt, shown):
+    r = rig()
+    doc = {"model": MODEL, "messages": [], "max_tokens": mt}
+    assert r.request(body=json.dumps(doc).encode())[0] == 400
+    assert r.ledger()[-1]["requested_max_tokens"] == shown
+
+
+def test_the_forwarding_line_is_durable_before_the_response_exists_and_resolved_after(rig):
+    from aiep import ledger as L
+    r = rig()
+    gate, entered = threading.Event(), threading.Event()
+
+    def slow(h, q):
+        entered.set()
+        gate.wait(10)
+        json_ok(h, q, message_json())
+
+    r.up.set_behavior(slow)
+    t = threading.Thread(target=lambda: r.request(body=body_for(max_tokens=64000)), daemon=True)
+    t.start()
+    assert entered.wait(5)
+    mid = L.audit(r.ledger_path.read_bytes())
+    assert mid["complete"] is False and [u["rid"] for u in mid["unresolved"]] == ["r1"] and mid["unresolved"][0]["requested_max_tokens"] == 64000
+    gate.set()
+    t.join(10)
+    assert L.audit(r.ledger_path.read_bytes())["complete"] is True
+
+
+def test_a_request_that_fails_before_a_response_still_resolves_its_forwarding_line(rig):
+    from aiep import ledger as L
+    r = rig()
+
+    def boom(h, p):
+        raise socket.gaierror("nope")
+    r.cfg.upstream = UpstreamConfig(host=UPSTREAM_HOST, port=r.up.port, ca_file=str(r.certs["good"][0]),
+                                    allow_private_addresses=True, resolver=boom)  # DNS failure -> 502 after the forwarding line was written
+    assert r.request()[0] == 502
+    entries = r.ledger()
+    assert [e["outcome"] for e in _by_rid(entries, "r1")] == ["forwarding", "refused"]
+    assert L.audit(r.ledger_path.read_bytes())["complete"] is True
+
+
+def test_request_ids_are_unique_per_request(rig):
+    r = rig()
+    for _ in range(3):
+        r.request()
+    assert [e["rid"] for e in r.ledger() if e["outcome"] == "forwarding"] == ["r1", "r2", "r3"]

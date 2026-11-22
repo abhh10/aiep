@@ -6,7 +6,7 @@ kwargs they want; ``harden`` returns the kwargs to actually use, or raises
 denylist). ``verify_inspect`` re-checks the *created* container against the same
 policy, so a harness change that bypasses the kwargs path is still caught.
 
-Roles: ``evaluator``, ``agent`` and ``gateway``. Container *creation* and every later
+Roles: ``evaluator``, ``agent``, ``gateway`` and ``proxy``. Container *creation* and every later
 ``docker exec`` into an agent or gateway container are policy-checked: ``harden_exec``
 allows only a short list of absolute-path binaries with fixed argument shapes, so the
 orchestrator can never be tricked into running an arbitrary command in a container.
@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from .limits import AGENT_MAX_OUTPUT_TOKENS, AGENT_RUNTIME_PINS, GATEWAY_MAX_TOKENS_CAP
 from .patch import HARDENED_GIT
 
 GIB = 1024**3
@@ -55,6 +56,11 @@ AGENT_ENV_KEYS = frozenset(
         "CLAUDE_CODE_SUBAGENT_MODEL",
         "CLAUDE_CODE_AUTO_MODE_MODEL",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+        "CLAUDE_CODE_MAX_RETRIES",
+        "API_TIMEOUT_MS",
+        "BASH_DEFAULT_TIMEOUT_MS",
+        "BASH_MAX_TIMEOUT_MS",
         "DISABLE_UPDATES",
         "HOME",
         "TZ",
@@ -90,7 +96,7 @@ GATEWAY_MEM_BYTES = 256 * 1024**2
 GATEWAY_PIDS = 128
 GATEWAY_NANO_CPUS = 1_000_000_000
 GATEWAY_ENV_KEYS = frozenset({
-    "AIEP_UPSTREAM_API_KEY", "AIEP_RUN_TOKEN", "AIEP_BUDGET_USD", "AIEP_ALLOWED_HOSTS", "AIEP_LISTEN",
+    "AIEP_UPSTREAM_API_KEY", "AIEP_RUN_TOKEN", "AIEP_BUDGET_USD", "AIEP_ALLOWED_HOSTS", "AIEP_LISTEN", "AIEP_UPSTREAM_PROXY", "AIEP_MAX_CONCURRENT",
     "AIEP_LEDGER_PATH", "AIEP_STOP_FILE", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "TZ", "HOME",
 })
 GATEWAY_TMPFS_RULES = {"/opt/aiep-gw": False, "/tmp": False}
@@ -99,6 +105,21 @@ GATEWAY_TMPFS_RULES = {"/opt/aiep-gw": False, "/tmp": False}
 GATEWAY_ENTRYPOINT = ["/bin/sleep"]
 GATEWAY_KEEPALIVE_ARGS = ["2147483647"]
 GATEWAY_COMMAND_TAIL = ["-m", "aiep.gateway"]  # run by exec, after verification, as [GatewayContext.python, *tail]
+
+# Restricted egress proxy (holds NO secret; the only container on the egress network; reached only by the gateway over the proxy network).
+PROXY_MEM = "128m"
+PROXY_MEM_BYTES = 128 * 1024**2
+PROXY_PIDS = 64
+PROXY_NANO_CPUS = 500_000_000
+PROXY_PORT = 3128
+PROXY_ENV_KEYS = frozenset({"AIEP_PROXY_LISTEN", "AIEP_PROXY_LOG", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "TZ", "HOME"})
+PROXY_TMPFS_RULES = {"/opt/aiep-proxy": False, "/tmp": False}
+PROXY_LOG_PATH = "/tmp/proxy.jsonl"
+PROXY_COMMAND_TAIL = ["-m", "aiep.egress_proxy"]  # run by exec after verification, only by a context with ``may_start_proxy``
+_LISTEN_RE = re.compile(r"^net:([0-9.]{7,15}/[0-9]{1,2}):([0-9]{1,5})$")
+_UPSTREAM_PROXY_RE = re.compile(r"^(aiep\.proxy\.[A-Za-z0-9][A-Za-z0-9_.-]{0,63}):([0-9]{1,5})$")
+# Placeholder network used ONLY by ``prepare`` (no Docker): it lets the create kwargs be policy-checked before the real subnet is known.
+PREFLIGHT_CIDR = "172.16.0.0/24"
 
 # docker exec policy
 MAX_EXEC_ARG_LEN = 512
@@ -113,10 +134,10 @@ READY_SCRIPT = (
     "s.close()\n"
 )
 _READY_ARG_RE = re.compile(r"^127\.0\.0\.1:[0-9]{1,5}$")
-TAR_DESTS = frozenset({"/testbed", "/opt/aiep", "/opt/aiep-gw", "/tmp/aiep"})
-VERIFY_ROOTS = frozenset({"/testbed", "/opt/aiep", "/opt/aiep-gw"})
+TAR_DESTS = frozenset({"/testbed", "/opt/aiep", "/opt/aiep-gw", "/opt/aiep-proxy", "/tmp/aiep"})
+VERIFY_ROOTS = frozenset({"/testbed", "/opt/aiep", "/opt/aiep-gw", "/opt/aiep-proxy"})
 # Interpreters must live on the read-only root, never on a tmpfs the container's user can rewrite.
-_WRITABLE_PREFIXES = ("/testbed", "/opt/aiep", "/opt/aiep-gw", "/tmp", "/home", "/proc", "/dev", "/sys")
+_WRITABLE_PREFIXES = ("/testbed", "/opt/aiep", "/opt/aiep-gw", "/opt/aiep-proxy", "/tmp", "/home", "/proc", "/dev", "/sys")
 _INTERPRETER_RE = re.compile(r"^/[A-Za-z0-9._+\-]+(/[A-Za-z0-9._+\-]+)*$")
 CLAUDE_PATH = "/opt/aiep/claude"
 GIT_PATH = "/usr/bin/git"
@@ -127,6 +148,7 @@ _TMPFS_FLAGS = frozenset({"rw", "exec", "noexec", "nosuid", "nodev"})
 _TMPFS_VALUES = frozenset({"size", "uid", "gid", "mode"})
 _SIZE_RE = re.compile(r"^(\d+)([kKmMgG]?)$")
 _SECRET_LIKE = re.compile(r"sk-ant-|sk-[A-Za-z0-9]{20,}")
+_IMAGE_BENIGN_ENV = {"GPG_KEY": re.compile(r"[0-9A-F]{40}")}  # image-declared and public by design: the python image's signing-key FINGERPRINT
 
 _EVAL_ALLOWED_IN = frozenset({"image", "command", "name", "user", "detach", "cap_add"})
 _AGENT_ALLOWED_IN = frozenset(
@@ -222,7 +244,7 @@ _HOME_RE = re.compile(r"^/[A-Za-z0-9._+\-]+(/[A-Za-z0-9._+\-]+)*$")
 _HOME_SYSTEM_DIRS = frozenset({"/", "/home", "/root", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64",
                                "/var", "/run", "/boot", "/opt", "/mnt", "/media", "/srv", "/opt/miniconda3"})
 _HOME_SPECIAL = ("/proc", "/sys", "/dev")
-_HOME_MOUNTS = ("/testbed", "/opt/aiep", "/opt/aiep-gw", "/tmp", "/opt/miniconda3")
+_HOME_MOUNTS = ("/testbed", "/opt/aiep", "/opt/aiep-gw", "/opt/aiep-proxy", "/tmp", "/opt/miniconda3")
 
 
 def validate_home_path(path: Any) -> str:
@@ -290,9 +312,12 @@ class AgentContext:
     image_id: str | None = None  # if set, the created container must come from exactly this image ID
     shm_size: str = AGENT_SHM_DEFAULT  # the pinned size of /dev/shm; the create request and inspect must both match it
     ipc_mode: str = AGENT_IPC_MODE  # only "private" exists: no host, shareable, container or none
+    gateway_max_tokens_cap: int = GATEWAY_MAX_TOKENS_CAP  # the gateway's max_tokens cap the output-token pin must fit under
 
     def __post_init__(self) -> None:
         _require(isinstance(self.identity, AgentIdentity), "agent: an AgentIdentity is required")
+        _require(type(self.gateway_max_tokens_cap) is int and AGENT_MAX_OUTPUT_TOKENS <= self.gateway_max_tokens_cap,
+                 f"agent: the output-token pin ({AGENT_MAX_OUTPUT_TOKENS}) exceeds the gateway's max_tokens cap ({self.gateway_max_tokens_cap})")
         validate_shm_size(self.shm_size)
         _require(isinstance(self.ipc_mode, str) and self.ipc_mode in AGENT_ALLOWED_IPC_MODES,
                  f"agent: ipc_mode must be one of {sorted(AGENT_ALLOWED_IPC_MODES)} (never host, shareable or container IPC)")
@@ -335,23 +360,66 @@ def _require_owned_tmpfs(mapping: Mapping[str, Any], uid: int, gid: int, role: s
         _require(bits & 0o022 == 0, f"{role}: tmpfs {path} mode {mode} must not be group- or world-writable")
 
 
+def validate_listen_value(value: Any, what: str, port: int | None, cidr: str | None, *, preflight: bool = False) -> None:
+    """``net:<cidr>:<port>`` only, with the cidr a valid private network and (when known) EXACTLY the network's real subnet."""
+    from .listen import split_listen
+    _require(isinstance(value, str) and _LISTEN_RE.fullmatch(value) is not None,
+             f"{what}: must be net:<ipv4 cidr>:<port> (wildcard, bare, loopback and hostname values are refused)")
+    try:
+        network, listen_port = split_listen(value)
+    except ValueError as e:
+        raise PolicyViolation(f"{what}: {e}") from e
+    _require(port is None or listen_port == port, f"{what}: port {listen_port} is not the expected {port}")
+    if cidr is not None:
+        _require(str(network) == cidr, f"{what}: network {network} is not the intended internal network {cidr}")
+    else:
+        _require(preflight, f"{what}: the intended internal network's subnet has not been resolved from Docker")
+
+
 @dataclass(frozen=True)
 class GatewayContext:
     """Trusted values the gateway policy checks the request against."""
 
-    agent_network: str  # internal network (agents live here)
-    egress_network: str  # the network that can reach the API; attached after create
+    agent_network: str  # internal network (agents live here); the gateway is created on it
+    proxy_network: str  # internal network shared with the restricted proxy; attached after create. The gateway has NO other network.
     image_id: str  # pinned image ID of the gateway's base image
     python: str  # interpreter inside the base image: explicit, never defaulted (UNVERIFIED until Docker conformance)
     uid: int  # the ONE identity that owns the gateway's tmpfs, extracts, verifies and runs its code: explicit,
     gid: int  # never defaulted, never root, never a bool; comes from config/gateway_image.json once verified
     extra_tmpfs: tuple[str, ...] = ()  # paths declared as image VOLUMEs, neutralised with a tmpfs
     real_key: str = field(default="", repr=False)  # may appear ONLY in AIEP_UPSTREAM_API_KEY
+    agent_cidr: str | None = None  # the agent network's real subnet (from ``docker network inspect``); AIEP_LISTEN must name exactly this
 
     def __post_init__(self) -> None:
         validate_interpreter_path(self.python, "gateway")
         _require(type(self.uid) is int and type(self.gid) is int and self.uid > 0 and self.gid > 0,
                  "gateway: uid and gid must be positive integers (never root)")
+        _require(self.agent_network != self.proxy_network, "gateway: the agent network and the proxy network must differ")
+
+    @property
+    def user(self) -> str:
+        return f"{self.uid}:{self.gid}"
+
+
+@dataclass(frozen=True)
+class ProxyContext:
+    """Trusted values the proxy policy checks the request against. The proxy holds no secrets."""
+
+    proxy_network: str  # internal network shared with the gateway; the proxy is created on it
+    egress_network: str  # the only network with a route out; attached after create
+    image_id: str  # the pinned python image (the same one the gateway uses)
+    python: str
+    uid: int  # must differ from the gateway's and the agent's (checked by the caller that builds both contexts)
+    gid: int
+    extra_tmpfs: tuple[str, ...] = ()
+    proxy_cidr: str | None = None  # the proxy network's real subnet; AIEP_PROXY_LISTEN must name exactly this
+    forbidden_secrets: tuple[str, ...] = field(default_factory=tuple, repr=False)  # the real key and run token: never anywhere in the request
+
+    def __post_init__(self) -> None:
+        validate_interpreter_path(self.python, "proxy")
+        _require(type(self.uid) is int and type(self.gid) is int and self.uid > 0 and self.gid > 0,
+                 "proxy: uid and gid must be positive integers (never root)")
+        _require(self.proxy_network != self.egress_network, "proxy: the proxy network and the egress network must differ")
 
     @property
     def user(self) -> str:
@@ -369,6 +437,7 @@ class ExecContext:
     python: str = ""  # the ONLY interpreter this context may run; "" means none (no default, no fallback)
     env: Mapping[str, str] = field(default_factory=dict)  # the environment of every exec; {} means the generic default
     may_start_gateway: bool = False  # only a gateway context may run ``python -m aiep.gateway``
+    may_start_proxy: bool = False  # only a proxy context may run ``python -m aiep.egress_proxy``
 
     def __post_init__(self) -> None:
         if self.python:
@@ -467,6 +536,10 @@ def _check_agent_env(env: Mapping[str, Any], ctx: AgentContext) -> None:
     _require(bool(env.get("ANTHROPIC_AUTH_TOKEN")), "agent: per-run ANTHROPIC_AUTH_TOKEN required")
     for key in _MODEL_ENV_KEYS & set(env):
         _require(env[key] == ctx.pinned_model, f"agent: {key} must equal the pinned model")
+    # The pinned Claude runtime settings are MANDATORY and exact: an omitted pin would let Claude Code fall back to its own default (for max output
+    # tokens that is 128000, which the gateway refuses), and a different value would break the A/B parity guarantee.
+    for key, value in AGENT_RUNTIME_PINS.items():
+        _require(env.get(key) == value, f"agent: {key} must be exactly {value!r} (pinned identically for every run; see aiep.limits)")
 
 
 def _check_no_secrets(obj: Any, ctx: AgentContext) -> None:
@@ -498,7 +571,7 @@ def _harden_gateway(kwargs: Mapping[str, Any], ctx: GatewayContext) -> dict:
     out = dict(kwargs)
     _require(out.get("detach") is True, "gateway: detach must be True")
     _require(out.get("user") == ctx.user, f"gateway: user must be exactly {ctx.user!r} (the uid:gid that owns its tmpfs)")
-    _require(out.get("network") == ctx.agent_network, "gateway: created on the agent network; egress is attached afterwards")
+    _require(out.get("network") == ctx.agent_network, "gateway: created on the agent network; the proxy network is attached afterwards (never an egress network)")
     _require(out.get("read_only") is True, "gateway: root filesystem must be read-only")
     # PID 1 is inert: the gateway process is started by exec only after its files were verified
     _require(out.get("entrypoint") == GATEWAY_ENTRYPOINT,
@@ -517,6 +590,11 @@ def _harden_gateway(kwargs: Mapping[str, Any], ctx: GatewayContext) -> dict:
     _require(bool(env.get("AIEP_UPSTREAM_API_KEY")) and bool(env.get("AIEP_RUN_TOKEN")),
              "gateway: AIEP_UPSTREAM_API_KEY and AIEP_RUN_TOKEN are required")
     _require(env.get("AIEP_RUN_TOKEN") != env.get("AIEP_UPSTREAM_API_KEY"), "gateway: run token must differ from the key")
+    validate_listen_value(env.get("AIEP_LISTEN"), "gateway: AIEP_LISTEN", None, ctx.agent_cidr)
+    _require(env.get("AIEP_MAX_CONCURRENT", "2") in ("1", "2", "3", "4"), "gateway: AIEP_MAX_CONCURRENT must be 1, 2, 3 or 4")
+    m = _UPSTREAM_PROXY_RE.fullmatch(str(env.get("AIEP_UPSTREAM_PROXY", "")))
+    _require(m is not None and 0 < int(m.group(2)) < 65536,
+             "gateway: AIEP_UPSTREAM_PROXY is required and must be aiep.proxy.<run id>:<port> (the gateway has no direct upstream route)")
     out["environment"] = env
     out.update(
         cap_drop=["ALL"], security_opt=["no-new-privileges"], mem_limit=GATEWAY_MEM, memswap_limit=GATEWAY_MEM,
@@ -531,6 +609,50 @@ def _harden_gateway(kwargs: Mapping[str, Any], ctx: GatewayContext) -> dict:
     return out
 
 
+_PROXY_ALLOWED_IN = _GATEWAY_ALLOWED_IN
+
+
+def _proxy_rules(ctx: ProxyContext) -> dict[str, bool]:
+    return {**PROXY_TMPFS_RULES, **{p: False for p in ctx.extra_tmpfs}}
+
+
+def proxy_tmpfs(ctx: ProxyContext, *, code_size: str = "8m", tmp_size: str = "8m", extra_size: str = "1m") -> dict[str, str]:
+    """The proxy's tmpfs options: all owned by ``ctx.uid:ctx.gid`` and private to that identity."""
+    own = f"uid={ctx.uid},gid={ctx.gid},mode=0700"
+    sizes = {"/opt/aiep-proxy": code_size, "/tmp": tmp_size, **{p: extra_size for p in ctx.extra_tmpfs}}
+    return {path: f"rw,nosuid,nodev,size={size},{own}" for path, size in sizes.items()}
+
+
+def _harden_proxy(kwargs: Mapping[str, Any], ctx: ProxyContext) -> dict:
+    _reject_unknown(kwargs, _PROXY_ALLOWED_IN, "proxy")
+    out = dict(kwargs)
+    _require(out.get("detach") is True, "proxy: detach must be True")
+    _require(out.get("user") == ctx.user, f"proxy: user must be exactly {ctx.user!r} (the uid:gid that owns its tmpfs)")
+    _require(out.get("network") == ctx.proxy_network, "proxy: created on the proxy network; the egress network is attached afterwards")
+    _require(out.get("read_only") is True, "proxy: root filesystem must be read-only")
+    _require(out.get("entrypoint") == GATEWAY_ENTRYPOINT, f"proxy: entrypoint must be exactly {GATEWAY_ENTRYPOINT!r}")
+    _require(out.get("command") == GATEWAY_KEEPALIVE_ARGS, f"proxy: command must be exactly {GATEWAY_KEEPALIVE_ARGS!r}")
+    _require(isinstance(out.get("image"), str) and out["image"], "proxy: image required")
+    _require(out.get("cap_drop") in (None, ["ALL"]), "proxy: cap_drop must be ['ALL']")
+    _require(out.get("security_opt") in (None, ["no-new-privileges"]), "proxy: security_opt must be no-new-privileges")
+    validate_tmpfs(out.get("tmpfs") or {}, creating=True, rules=_proxy_rules(ctx))
+    _require_owned_tmpfs(out.get("tmpfs") or {}, ctx.uid, ctx.gid, "proxy")
+    env = dict(out.get("environment") or {})
+    for key, value in env.items():
+        _require(key in PROXY_ENV_KEYS, f"proxy: environment variable {key!r} is not allowed (the proxy holds no application secrets)")
+        _require(isinstance(value, str), f"proxy: environment {key} must be a string")
+        _require(not _SECRET_LIKE.search(value), f"proxy: environment {key} looks like an API key")
+    validate_listen_value(env.get("AIEP_PROXY_LISTEN"), "proxy: AIEP_PROXY_LISTEN", PROXY_PORT, ctx.proxy_cidr)
+    _require(env.get("AIEP_PROXY_LOG", PROXY_LOG_PATH) == PROXY_LOG_PATH, f"proxy: AIEP_PROXY_LOG must be {PROXY_LOG_PATH}")
+    out["environment"] = env
+    out.update(cap_drop=["ALL"], security_opt=["no-new-privileges"], mem_limit=PROXY_MEM, memswap_limit=PROXY_MEM,
+               pids_limit=PROXY_PIDS, nano_cpus=PROXY_NANO_CPUS, labels={**(out.get("labels") or {}), "aiep.role": "proxy"})
+    blob = repr(out)
+    for secret in ctx.forbidden_secrets:
+        _require(not secret or secret not in blob, "proxy: a secret appears in the container request (the proxy must hold none)")
+    return out
+
+
 def harden(role: str, kwargs: Mapping[str, Any], ctx: Any = None) -> dict:
     """Return policy-conformant create kwargs for ``role`` or raise PolicyViolation."""
     if role == "evaluator":
@@ -541,6 +663,9 @@ def harden(role: str, kwargs: Mapping[str, Any], ctx: Any = None) -> dict:
     if role == "gateway":
         _require(isinstance(ctx, GatewayContext), "gateway: a GatewayContext is required")
         return _harden_gateway(kwargs, ctx)
+    if role == "proxy":
+        _require(isinstance(ctx, ProxyContext), "proxy: a ProxyContext is required")
+        return _harden_proxy(kwargs, ctx)
     raise PolicyViolation(f"unknown container role {role!r}")
 
 
@@ -565,11 +690,11 @@ def harden_exec(argv: Any, *, user: str, workdir: str, env: Mapping[str, str], c
     elif ctx.python and binary == ctx.python:  # the one explicitly configured interpreter, nothing else
         shaped = len(argv) == 5 and argv[1:3] == ["-I", "-c"] and argv[3] in ctx.allowed_scripts
         verify = shaped and argv[3] != READY_SCRIPT and argv[4] in VERIFY_ROOTS
-        ready = (shaped and argv[3] == READY_SCRIPT and ctx.may_start_gateway
+        ready = (shaped and argv[3] == READY_SCRIPT and (ctx.may_start_gateway or ctx.may_start_proxy)
                  and _READY_ARG_RE.fullmatch(argv[4]) is not None and 0 < int(argv[4].rpartition(":")[2]) < 65536)
-        start = ctx.may_start_gateway and argv[1:] == GATEWAY_COMMAND_TAIL
-        _require(verify or ready or start, "exec: the interpreter only runs a registered script against an allowed"
-                                           " root (or, for the gateway context, `-m aiep.gateway` and the readiness probe)")
+        start = (ctx.may_start_gateway and argv[1:] == GATEWAY_COMMAND_TAIL) or (ctx.may_start_proxy and argv[1:] == PROXY_COMMAND_TAIL)
+        _require(verify or ready or start, "exec: the interpreter only runs a registered script against an allowed root (or, for the"
+                                           " gateway/proxy context, its own `-m` module and the readiness probe)")
     elif binary == "/bin/cat":
         _require(len(argv) == 2 and argv[1] in ctx.readable_paths, "exec: cat may only read registered files")
     elif binary == GIT_PATH:
@@ -633,10 +758,33 @@ def verify_inspect(role: str, inspect: Mapping[str, Any], ctx: Any = None) -> No
                  "gateway: entrypoint/command are not the fixed keepalive")
         validate_tmpfs(host.get("Tmpfs") or {}, creating=False, rules=_gateway_rules(ctx))
         _require_owned_tmpfs(host.get("Tmpfs") or {}, ctx.uid, ctx.gid, "gateway")
-        # exactly the two networks, once the egress network has been attached
+        # exactly the agent network and the proxy network, once the proxy network has been attached: never an egress network
         nets = set(((inspect.get("NetworkSettings") or {}).get("Networks") or {}).keys())
-        _require(nets == {ctx.agent_network, ctx.egress_network}, f"gateway: attached networks are {sorted(nets)}")
+        _require(nets == {ctx.agent_network, ctx.proxy_network}, f"gateway: attached networks are {sorted(nets)}")
         _require(inspect.get("Image") == ctx.image_id, "gateway: container is not from the pinned base image ID")
+    elif role == "proxy":
+        _require(isinstance(ctx, ProxyContext), "proxy: a ProxyContext is required")
+        _require(host.get("ReadonlyRootfs") is True, "proxy: root filesystem is writable")
+        _require(host.get("Memory") == PROXY_MEM_BYTES, "proxy: memory limit not applied")
+        _require(host.get("PidsLimit") == PROXY_PIDS, "proxy: pids limit not applied")
+        _require(host.get("NanoCpus") == PROXY_NANO_CPUS, "proxy: cpu limit not applied")
+        _require(str(cfg.get("User", "")) == ctx.user, f"proxy: must run as {ctx.user!r}")
+        _require(cfg.get("Entrypoint") == GATEWAY_ENTRYPOINT and cfg.get("Cmd") == GATEWAY_KEEPALIVE_ARGS,
+                 "proxy: entrypoint/command are not the fixed keepalive")
+        validate_tmpfs(host.get("Tmpfs") or {}, creating=False, rules=_proxy_rules(ctx))
+        _require_owned_tmpfs(host.get("Tmpfs") or {}, ctx.uid, ctx.gid, "proxy")
+        nets = set(((inspect.get("NetworkSettings") or {}).get("Networks") or {}).keys())
+        _require(nets == {ctx.proxy_network, ctx.egress_network}, f"proxy: attached networks are {sorted(nets)}")
+        _require(inspect.get("Image") == ctx.image_id, "proxy: container is not from the pinned base image ID")
+        observed = " ".join(str(e) for e in (cfg.get("Env") or []))
+        for secret in ctx.forbidden_secrets:
+            _require(not secret or secret not in observed, "proxy: a secret appears in the created container's environment")
+        for e in cfg.get("Env") or []:
+            key, _, value = str(e).partition("=")
+            benign = key in _IMAGE_BENIGN_ENV and _IMAGE_BENIGN_ENV[key].fullmatch(value) is not None
+            _require(not any(w in key.upper() for w in ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH")) or benign,
+                     f"proxy: the created container has a secret-looking environment variable {key!r}")
+            _require(not _SECRET_LIKE.search(value), f"proxy: the created container's environment variable {key!r} looks like an API key")
     elif role == "agent":
         _require(isinstance(ctx, AgentContext), "agent: an AgentContext is required")
         _require(host.get("NetworkMode") == ctx.agent_network, "agent: wrong network")
@@ -660,6 +808,12 @@ def verify_inspect(role: str, inspect: Mapping[str, Any], ctx: Any = None) -> No
             _require(inspect.get("Image") == ctx.image_id, "agent: container is not from the expected image ID")
         nets = set(((inspect.get("NetworkSettings") or {}).get("Networks") or {}).keys() or {ctx.agent_network})
         _require(nets == {ctx.agent_network}, f"agent: attached networks are {sorted(nets)}")
+        observed = dict(e.split("=", 1) for e in (cfg.get("Env") or []) if isinstance(e, str) and "=" in e)
+        for key, value in AGENT_RUNTIME_PINS.items():
+            _require(observed.get(key) == value, f"agent: the created container's {key} is {observed.get(key)!r}, must be exactly {value!r}")
+        out_tokens = observed.get("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "")
+        _require(out_tokens.isdigit() and int(out_tokens) <= ctx.gateway_max_tokens_cap,
+                 f"agent: CLAUDE_CODE_MAX_OUTPUT_TOKENS ({out_tokens!r}) must not exceed the gateway's max_tokens cap ({ctx.gateway_max_tokens_cap})")
         _check_no_secrets(inspect, ctx)
     else:
         raise PolicyViolation(f"unknown container role {role!r}")

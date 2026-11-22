@@ -1,5 +1,8 @@
 # M2 Phase 1 notes: trusted components (no Docker, no network, no spend)
 
+> **Superseded in part (2026-11-20):** the gateway no longer has an egress-capable network. The current topology (agent-net, proxy-net, egress-net with a restricted CONNECT proxy) is in `docs/M2_EGRESS_ARCHITECTURE.md`; statements below about attaching an egress network to the gateway describe the earlier design.
+
+
 Status: implemented and unit-tested with fake Docker clients, a loopback fake API server and
 temporary git repositories, then audited (below). Nothing here has run against Docker, the real
 API or a benchmark evaluation. This is not a result: Phases 2 to 4 still have to prove these

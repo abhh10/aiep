@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "status": "pinned",
+  "status_note": "Pinned from the Gate 1a/1b evidence (kept outside the repository). The SHA-256 and size are those of the signed release manifest (RSASSA-PKCS1-v1_5-SHA512, signing key SPKI SHA-256 89a24e2e18d2f8fa4627a0a47cf76c3682aef237b60d2cd115d6f5202e2e9896, verified offline) AND of the bytes actually downloaded; they are identical. Static analysis only: ELF 64-bit little-endian x86-64, dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, needs librt, libc, ld-linux, libpthread, libdl and libm, highest required GLIBC version 2.17 (Ubuntu 22.04 provides 2.35), no libstdc++. The binary has NOT been executed: runtime compatibility, including Rosetta and CPU features (it declares no x86 ISA requirements), is unverified until Gate 3.",
+  "version": "2.1.328",
+  "platform": "linux-x64",
+  "source": "https://downloads.claude.ai/claude-code-releases/2.1.328/linux-x64/claude",
+  "sha256": "a982d38030b97e750848add2cbb2df6d9a70d5544a22ca9b216a349ba25865e8",
+  "size_bytes": 373019152,
+  "destination": "/opt/aiep/claude",
+  "max_binary_bytes": 419430400,
+  "max_binary_note": "Hard refusal above this. The verified Linux x64 binary is 373019152 bytes (355.74 MiB), 44.26 MiB under this ceiling and 60.26 MiB under the 416 MiB /opt/aiep tmpfs. The ceiling is unchanged. See docs/M2_GATE0_NOTES.md for the tmpfs and memory arithmetic.",
+  "to_verify_after_download": [
+    "the binary runs under Rosetta in the agent container, as the unprivileged agent user, from a read-only root and noexec HOME and /tmp (Gate 3)",
+    "every flag in aiep.experiment.CLAUDE_ARGS exists in THIS binary's --help (verified locally only against the macOS 2.1.328 build)"
+  ]
+}

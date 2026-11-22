@@ -1,6 +1,7 @@
 import copy
 
 import pytest
+from aiep.limits import AGENT_RUNTIME_PINS
 
 from aiep.container_policy import (gateway_tmpfs, validate_interpreter_path,
     AGENT_ENV_KEYS,
@@ -67,6 +68,7 @@ def agent_kwargs(**over):
             "ANTHROPIC_AUTH_TOKEN": "per-run-token",
             "ANTHROPIC_MODEL": MODEL,
             "HOME": IDENT.home,
+            **AGENT_RUNTIME_PINS,
         },
     )
     kw.update(over)
@@ -155,7 +157,7 @@ def test_agent_must_be_non_root(user):
     "over",
     [
         {"network": "bridge"},
-        {"network": "aiep-egress-net"},
+        {"network": "aiep-proxy-net"},
         {"read_only": False},
         {"privileged": True},
         {"volumes": {"/x": {"bind": "/y"}}},
@@ -242,7 +244,7 @@ def good_agent_inspect():
             "IpcMode": "private", "ShmSize": 64 * 1024**2,
         },
         "Mounts": [],
-        "Config": {"User": IDENT.user, "Env": ["ANTHROPIC_AUTH_TOKEN=t"]},
+        "Config": {"User": IDENT.user, "Env": ["ANTHROPIC_AUTH_TOKEN=t", *[f"{k}={v}" for k, v in AGENT_RUNTIME_PINS.items()]]},
     }
 
 
@@ -487,8 +489,9 @@ def test_multiline_secret_text_is_caught_even_though_repr_would_escape_it():
 GW_IMAGE_ID = "sha256:" + "9" * 64
 # TEST-ONLY gateway values: the real image, its interpreter path and its uid:gid are unresolved (config/gateway_image.json).
 GW_PY, GW_UID, GW_GID = "/usr/local/bin/python3", 10001, 10001
-GCTX = GatewayContext(agent_network="aiep-agent-net", egress_network="aiep-egress-net", image_id=GW_IMAGE_ID,
-                      python=GW_PY, uid=GW_UID, gid=GW_GID, extra_tmpfs=("/var/lib/localstack",), real_key="sk-ant-GATEWAY-REAL-KEY")
+GCTX = GatewayContext(agent_network="aiep-agent-net", proxy_network="aiep-proxy-net", image_id=GW_IMAGE_ID,
+                      python=GW_PY, uid=GW_UID, gid=GW_GID, extra_tmpfs=("/var/lib/localstack",), real_key="sk-ant-GATEWAY-REAL-KEY",
+                      agent_cidr="172.30.1.0/24")
 
 
 def gw_kwargs(**over):
@@ -497,7 +500,8 @@ def gw_kwargs(**over):
         user="10001:10001", detach=True, network="aiep-agent-net", read_only=True,
         tmpfs=gateway_tmpfs(GCTX),
         environment={"AIEP_UPSTREAM_API_KEY": "sk-ant-GATEWAY-REAL-KEY", "AIEP_RUN_TOKEN": "run-token",
-                     "AIEP_BUDGET_USD": "0.50", "AIEP_ALLOWED_HOSTS": "gateway:8080", "AIEP_LISTEN": "0.0.0.0:8080",
+                     "AIEP_BUDGET_USD": "0.50", "AIEP_ALLOWED_HOSTS": "gateway:8080", "AIEP_LISTEN": "net:172.30.1.0/24:8080",
+                     "AIEP_UPSTREAM_PROXY": "aiep.proxy.r1:3128",
                      "AIEP_LEDGER_PATH": "/tmp/ledger.jsonl", "AIEP_STOP_FILE": "/tmp/gateway.stop",
                      "PYTHONPATH": "/opt/aiep-gw/src", "PYTHONDONTWRITEBYTECODE": "1"},
     )
@@ -512,7 +516,7 @@ def good_gw_inspect():
                        "ReadonlyRootfs": True, "Memory": 256 * 1024**2, "PidsLimit": 128, "NanoCpus": 1_000_000_000,
                        "Tmpfs": gw_kwargs()["tmpfs"], "Binds": None},
         "Mounts": [], "Config": {"User": "10001:10001", "Entrypoint": ["/bin/sleep"], "Cmd": ["2147483647"]},
-        "NetworkSettings": {"Networks": {"aiep-agent-net": {}, "aiep-egress-net": {}}},
+        "NetworkSettings": {"Networks": {"aiep-agent-net": {}, "aiep-proxy-net": {}}},
     }
 
 
@@ -528,7 +532,7 @@ def test_gateway_role_ok_and_limits_applied():
     {"command": ["/usr/local/bin/python3", "-m", "aiep.gateway"]},  # starting it is only allowed after verification
     {"command": ["/bin/sleep", "2147483647"]}, {"entrypoint": ["/docker-entrypoint.sh"]}, {"entrypoint": []},
     {"entrypoint": ["/bin/sleep", "1"]}, {"entrypoint": "/bin/sleep"},
-    {"network": "bridge"}, {"network": "aiep-egress-net"},
+    {"network": "bridge"}, {"network": "aiep-proxy-net"},
     {"read_only": False}, {"command": ["/bin/sh"]}, {"command": ["/usr/local/bin/python3", "-c", "x"]},
     {"privileged": True}, {"volumes": {"/x": {"bind": "/y"}}}, {"ports": {"8080/tcp": 8080}},
     {"cap_add": ["NET_ADMIN"]}, {"entrypoint": ["/bin/sh"]}, {"network_mode": "host"},
@@ -564,8 +568,8 @@ def test_the_real_key_may_appear_only_in_its_own_variable():
 
 def test_image_volume_must_be_neutralised_by_a_declared_tmpfs():
     # without extra_tmpfs the localstack VOLUME path is not an allowed tmpfs, so the request is refused
-    plain = GatewayContext(agent_network="aiep-agent-net", egress_network="aiep-egress-net", image_id=GW_IMAGE_ID,
-                           python=GW_PY, uid=GW_UID, gid=GW_GID)
+    plain = GatewayContext(agent_network="aiep-agent-net", proxy_network="aiep-proxy-net", image_id=GW_IMAGE_ID,
+                           python=GW_PY, uid=GW_UID, gid=GW_GID, agent_cidr="172.30.1.0/24")
     with pytest.raises(PolicyViolation):
         harden("gateway", gw_kwargs(), plain)
     # and an anonymous volume that was NOT neutralised shows up as a mount at inspect time
@@ -576,7 +580,7 @@ def test_image_volume_must_be_neutralised_by_a_declared_tmpfs():
 
 
 @pytest.mark.parametrize("mutate", [
-    lambda i: i["NetworkSettings"]["Networks"].pop("aiep-egress-net"),
+    lambda i: i["NetworkSettings"]["Networks"].pop("aiep-proxy-net"),
     lambda i: i["NetworkSettings"]["Networks"].__setitem__("bridge", {}),
     lambda i: i.__setitem__("Image", "sha256:" + "1" * 64),
     lambda i: i["HostConfig"].__setitem__("ReadonlyRootfs", False),
@@ -647,15 +651,15 @@ def test_gateway_identity_is_one_explicit_uid_gid_and_never_root():
     for uid, gid in ((0, 10001), (10001, 0), (-1, 5), (5, -1), (True, 5), (5, True), (False, 5), ("10001", 5), (5, "5"),
                      (None, 5), (5, None), (1.5, 5), (5, 2.0), ([1], 5)):
         with pytest.raises(PolicyViolation):
-            GatewayContext(agent_network="a", egress_network="e", image_id=GW_IMAGE_ID, python=GW_PY, uid=uid, gid=gid)
+            GatewayContext(agent_network="a", proxy_network="p", image_id=GW_IMAGE_ID, python=GW_PY, uid=uid, gid=gid)
 
 
 def test_gateway_context_has_no_default_identity_interpreter_or_anything_inferred():
     import dataclasses
     fields = {f.name: f for f in dataclasses.fields(GatewayContext)}
-    for name in ("agent_network", "egress_network", "image_id", "python", "uid", "gid"):
+    for name in ("agent_network", "proxy_network", "image_id", "python", "uid", "gid"):
         assert fields[name].default is dataclasses.MISSING and fields[name].default_factory is dataclasses.MISSING, name
-    base = dict(agent_network="a", egress_network="e", image_id=GW_IMAGE_ID, python=GW_PY, uid=GW_UID, gid=GW_GID)
+    base = dict(agent_network="a", proxy_network="p", image_id=GW_IMAGE_ID, python=GW_PY, uid=GW_UID, gid=GW_GID)
     GatewayContext(**base)
     for missing in ("python", "uid", "gid", "image_id"):
         kw = dict(base)
@@ -1044,3 +1048,188 @@ def test_the_owned_tmpfs_docstring_describes_what_the_check_really_enforces():
     assert "07x0" not in doc and "private to its owner" not in doc  # the old, inaccurate wording
     for phrase in ("group nor others write", "0755", "0700", "1777", "special bits"):
         assert phrase in doc, phrase
+
+
+# ---------------- AIEP_LISTEN and AIEP_UPSTREAM_PROXY (gateway) ----------------
+@pytest.mark.parametrize("value", [
+    "internal:8080", "0.0.0.0:8080", "127.0.0.1:8080", "[::]:8080", ":8080", "*:8080", "8080", "172.30.1.2:8080", "localhost:8080",
+    "net:0.0.0.0/0:8080", "net:127.0.0.0/8:8080", "net:169.254.0.0/16:8080", "net:8.8.8.0/24:8080", "net:172.30.1.0/24:0",
+    "net:172.30.1.0/24:65536", "net:172.30.1.0/24:80x", "net:172.30.1.1/24:8080", "net:172.30.2.0/24:8080",  # another network's subnet
+    "net:172.30.1.0/24:8080 ", "net:172.30.1.0/24", "net:172.30.1.0/31:8080", "net:172.0.0.0/7:8080", "net:::1/128:8080", "",
+])
+def test_aiep_listen_must_be_exactly_the_agent_networks_real_subnet(value):
+    kw = gw_kwargs()
+    kw["environment"]["AIEP_LISTEN"] = value
+    with pytest.raises(PolicyViolation):
+        harden("gateway", kw, GCTX)
+
+
+def test_aiep_listen_accepts_exactly_the_resolved_subnet_and_refuses_when_unresolved():
+    import dataclasses
+    harden("gateway", gw_kwargs(), GCTX)
+    unresolved = dataclasses.replace(GCTX, agent_cidr=None)
+    with pytest.raises(PolicyViolation, match="not been resolved"):
+        harden("gateway", gw_kwargs(), unresolved)
+    kw = gw_kwargs()
+    kw["environment"]["AIEP_LISTEN"] = "net:172.30.9.0/24:8080"
+    with pytest.raises(PolicyViolation, match="not the intended"):
+        harden("gateway", kw, GCTX)
+
+
+@pytest.mark.parametrize("value", ["", "api.anthropic.com:443", "aiep.proxy.r1", "aiep.proxy.r1:0", "aiep.proxy.r1:70000", "172.30.2.2:3128",
+                                   "aiep.proxy.:3128", "evil.example:3128", "aiep.proxy.r1:3128\n"])
+def test_the_gateway_needs_a_proxy_endpoint_of_the_exact_aiep_shape(value):
+    kw = gw_kwargs()
+    kw["environment"]["AIEP_UPSTREAM_PROXY"] = value
+    with pytest.raises(PolicyViolation):
+        harden("gateway", kw, GCTX)
+    kw = gw_kwargs()
+    del kw["environment"]["AIEP_UPSTREAM_PROXY"]
+    with pytest.raises(PolicyViolation, match="no direct upstream route"):
+        harden("gateway", kw, GCTX)
+
+
+def test_the_gateway_context_needs_distinct_networks_and_never_names_an_egress_network():
+    with pytest.raises(PolicyViolation, match="must differ"):
+        GatewayContext(agent_network="n", proxy_network="n", image_id=GW_IMAGE_ID, python=GW_PY, uid=GW_UID, gid=GW_GID)
+    import dataclasses
+    assert "egress_network" not in {f.name for f in dataclasses.fields(GatewayContext)}
+    for net in ("aiep-egress-net", "bridge", "host"):
+        info = good_gw_inspect()
+        info["NetworkSettings"]["Networks"][net] = {}
+        with pytest.raises(PolicyViolation, match="attached networks"):
+            verify_inspect("gateway", info, GCTX)
+
+
+# ---------------- proxy role ----------------
+from aiep.container_policy import (PROXY_MEM_BYTES, PROXY_NANO_CPUS, PROXY_PIDS, READY_SCRIPT, ExecContext, ProxyContext, proxy_tmpfs)  # noqa: E402
+
+PX_UID = 10002
+PCTX = ProxyContext(proxy_network="aiep-proxy-net", egress_network="aiep-egress-net", image_id=GW_IMAGE_ID, python=GW_PY, uid=PX_UID, gid=PX_UID,
+                    proxy_cidr="172.30.2.0/24", forbidden_secrets=("sk-ant-GATEWAY-REAL-KEY", "run-token"))
+
+
+def px_kwargs(**over):
+    kw = dict(image="gateway-base:1", command=["2147483647"], entrypoint=["/bin/sleep"], name="aiep.proxy.r1", user="10002:10002", detach=True,
+              network="aiep-proxy-net", read_only=True, tmpfs=proxy_tmpfs(PCTX),
+              environment={"AIEP_PROXY_LISTEN": "net:172.30.2.0/24:3128", "AIEP_PROXY_LOG": "/tmp/proxy.jsonl", "PYTHONPATH": "/opt/aiep-proxy/src",
+                           "PYTHONDONTWRITEBYTECODE": "1", "TZ": "UTC", "HOME": "/tmp"})
+    kw.update(over)
+    return kw
+
+
+def good_px_inspect():
+    return {"Image": GW_IMAGE_ID,
+            "HostConfig": {"Privileged": False, "CapAdd": None, "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"], "ReadonlyRootfs": True,
+                           "Memory": PROXY_MEM_BYTES, "PidsLimit": PROXY_PIDS, "NanoCpus": PROXY_NANO_CPUS, "Tmpfs": px_kwargs()["tmpfs"], "Binds": None},
+            "Mounts": [], "Config": {"User": "10002:10002", "Entrypoint": ["/bin/sleep"], "Cmd": ["2147483647"], "Env": ["PATH=/usr/bin", "HOME=/tmp"]},
+            "NetworkSettings": {"Networks": {"aiep-proxy-net": {}, "aiep-egress-net": {}}}}
+
+
+def test_proxy_role_ok_limits_applied_and_inspect_matches():
+    out = harden("proxy", px_kwargs(), PCTX)
+    assert out["cap_drop"] == ["ALL"] and out["security_opt"] == ["no-new-privileges"] and out["read_only"] is True
+    assert out["mem_limit"] == "128m" and out["pids_limit"] == 64 and out["labels"]["aiep.role"] == "proxy"
+    verify_inspect("proxy", good_px_inspect(), PCTX)
+
+
+@pytest.mark.parametrize("over", [
+    {"user": "root"}, {"user": "0"}, {"user": "10001:10001"}, {"user": "10002"}, {"user": "10002:0"},
+    {"network": "aiep-egress-net"}, {"network": "bridge"}, {"network": "aiep-agent-net"}, {"read_only": False},
+    {"command": ["/bin/sh"]}, {"entrypoint": ["/bin/sh"]}, {"command": ["/usr/local/bin/python3", "-m", "aiep.egress_proxy"]},
+    {"privileged": True}, {"volumes": {"/x": {"bind": "/y"}}}, {"ports": {"3128/tcp": 3128}}, {"cap_add": ["NET_ADMIN"]}, {"network_mode": "host"},
+    {"tmpfs": {"/etc": f"{T},size=1m"}}, {"tmpfs": {"/opt/aiep-proxy": f"{T},exec,size=1m"}}, {"extra_hosts": {"x": "1.2.3.4"}}, {"dns": ["8.8.8.8"]},
+])
+def test_proxy_role_refuses_dangerous_requests(over):
+    with pytest.raises(PolicyViolation):
+        harden("proxy", px_kwargs(**over), PCTX)
+
+
+@pytest.mark.parametrize("env_over", [
+    {"AIEP_UPSTREAM_API_KEY": "x"}, {"AIEP_RUN_TOKEN": "x"}, {"ANTHROPIC_API_KEY": "x"}, {"ANTHROPIC_AUTH_TOKEN": "x"}, {"AWS_SECRET_ACCESS_KEY": "x"},
+    {"LD_PRELOAD": "x"}, {"HTTPS_PROXY": "http://x"}, {"AIEP_PROXY_LOG": "/etc/passwd"}, {"TZ": "sk-ant-api03-abcdefghijklmnop"},
+    {"HOME": "run-token-is-not-a-secret-here-but-sk-aaaaaaaaaaaaaaaaaaaaaaaa"},
+])
+def test_proxy_environment_is_an_exact_allowlist_and_holds_no_secret(env_over):
+    kw = px_kwargs()
+    kw["environment"].update(env_over)
+    with pytest.raises(PolicyViolation):
+        harden("proxy", kw, PCTX)
+
+
+def test_a_forbidden_secret_anywhere_in_the_proxy_request_is_refused():
+    kw = px_kwargs(labels={"x": "sk-ant-GATEWAY-REAL-KEY"})
+    with pytest.raises(PolicyViolation, match="secret appears"):
+        harden("proxy", kw, PCTX)
+    kw = px_kwargs()
+    kw["environment"]["TZ"] = "run-token"
+    with pytest.raises(PolicyViolation, match="secret appears"):
+        harden("proxy", kw, PCTX)
+
+
+@pytest.mark.parametrize("value", ["internal:3128", "0.0.0.0:3128", "127.0.0.1:3128", "net:172.30.2.0/24:8080", "net:172.30.3.0/24:3128",
+                                   "net:172.30.1.0/24:3128", "net:0.0.0.0/0:3128", "net:127.0.0.0/8:3128", ""])
+def test_the_proxy_listen_value_must_be_its_own_network_and_the_fixed_port(value):
+    kw = px_kwargs()
+    kw["environment"]["AIEP_PROXY_LISTEN"] = value
+    with pytest.raises(PolicyViolation):
+        harden("proxy", kw, PCTX)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda i: i["NetworkSettings"]["Networks"].pop("aiep-egress-net"),
+    lambda i: i["NetworkSettings"]["Networks"].pop("aiep-proxy-net"),
+    lambda i: i["NetworkSettings"]["Networks"].__setitem__("aiep-agent-net", {}),
+    lambda i: i["NetworkSettings"]["Networks"].__setitem__("bridge", {}),
+    lambda i: i.__setitem__("Image", "sha256:" + "1" * 64),
+    lambda i: i["HostConfig"].__setitem__("ReadonlyRootfs", False),
+    lambda i: i["Config"].__setitem__("User", "root"),
+    lambda i: i["HostConfig"].__setitem__("Memory", 0),
+    lambda i: i["HostConfig"].__setitem__("CapDrop", []),
+    lambda i: i["HostConfig"].__setitem__("PortBindings", {"3128/tcp": [{"HostPort": "3128"}]}),
+    lambda i: i["Config"]["Env"].append("AIEP_UPSTREAM_API_KEY=x"),
+    lambda i: i["Config"]["Env"].append("SOMETHING=run-token"),
+    lambda i: i["Config"]["Env"].append("GPG_KEY=not-a-fingerprint"),
+    lambda i: i["Config"]["Env"].append("OTHER_KEY=7169605F62C751356D054A26A821E680E5FA6305"),
+    lambda i: i["Config"]["Env"].append("X=sk-ant-api03-abcdefghijklmnop"),
+    lambda i: i.__setitem__("Mounts", [{"Type": "volume", "Destination": "/x"}]),
+])
+def test_proxy_inspect_checks_exact_networks_image_hardening_and_secrets(mutate):
+    info = good_px_inspect()
+    mutate(info)
+    with pytest.raises(PolicyViolation):
+        verify_inspect("proxy", info, PCTX)
+
+
+def test_proxy_context_has_no_default_identity_and_never_root():
+    for uid, gid in ((0, 5), (5, 0), (-1, 5), (True, 5), ("1", 5), (None, 5)):
+        with pytest.raises(PolicyViolation):
+            ProxyContext(proxy_network="p", egress_network="e", image_id=GW_IMAGE_ID, python=GW_PY, uid=uid, gid=gid)
+    with pytest.raises(PolicyViolation, match="must differ"):
+        ProxyContext(proxy_network="p", egress_network="p", image_id=GW_IMAGE_ID, python=GW_PY, uid=5, gid=5)
+    with pytest.raises(PolicyViolation):
+        ProxyContext(proxy_network="p", egress_network="e", image_id=GW_IMAGE_ID, python="python3", uid=5, gid=5)
+    with pytest.raises(PolicyViolation, match="ProxyContext is required"):
+        harden("proxy", px_kwargs(), GCTX)
+
+
+def test_the_proxy_exec_context_may_start_only_the_proxy_and_the_gateway_context_only_the_gateway():
+    ctx = ExecContext(user="10002:10002", python=GW_PY, may_start_proxy=True, allowed_scripts=frozenset({READY_SCRIPT}))
+    harden_exec([GW_PY, "-m", "aiep.egress_proxy"], user="10002:10002", workdir="/", env={}, ctx=ctx)
+    harden_exec([GW_PY, "-I", "-c", READY_SCRIPT, "127.0.0.1:3128"], user="10002:10002", workdir="/", env={}, ctx=ctx)
+    with pytest.raises(PolicyViolation):
+        harden_exec([GW_PY, "-m", "aiep.gateway"], user="10002:10002", workdir="/", env={}, ctx=ctx)
+    gw = ExecContext(user="10001:10001", python=GW_PY, may_start_gateway=True)
+    with pytest.raises(PolicyViolation):
+        harden_exec([GW_PY, "-m", "aiep.egress_proxy"], user="10001:10001", workdir="/", env={}, ctx=gw)
+    plain = ExecContext(user="10002:10002", python=GW_PY)
+    with pytest.raises(PolicyViolation):
+        harden_exec([GW_PY, "-m", "aiep.egress_proxy"], user="10002:10002", workdir="/", env={}, ctx=plain)
+    with pytest.raises(PolicyViolation):
+        harden_exec([GW_PY, "-m", "aiep.egress_proxy", "--x"], user="10002:10002", workdir="/", env={}, ctx=ctx)
+
+
+def test_the_python_images_public_gpg_key_fingerprint_is_not_mistaken_for_a_secret():
+    info = good_px_inspect()
+    info["Config"]["Env"].append("GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305")
+    verify_inspect("proxy", info, PCTX)

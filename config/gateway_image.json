@@ -1,16 +1,16 @@
 {
   "schema": 2,
-  "status": "unpinned",
-  "status_note": "DESIGN ONLY. No image has been pulled, inspected or started. The repository digest and image ID are unknown, so no run can use this file until they are recorded after an approved pull and conformance check.",
+  "status": "verified",
+  "status_note": "PINNED by digest and image ID from the Gate 1c evidence (kept outside the repository); nothing in the image has been executed. Original tag docker.io/library/python:3.12-slim (mutable, so never used as the pin). Registry index digest sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b (OCI index, 8 platform images plus attestations); the selected platform is linux/arm64/v8 (the host's native architecture), whose immutable manifest digest is sha256:c61cffc3bacb94ed026ff8b45d5114b7693dd0420baca0a1ace0e3d0ce9035fd. With Docker's containerd image store the local image ID equals that manifest digest, and the pull by digest reported the same digest. Official Docker Library build: Debian 13 (trixie-slim) 13.7, Python 3.12.16, created 2026-11-05T08:09:10Z, 4 layers, source github.com/docker-library/python 3d7e95597e56a415d9e4abc0f15877e005d2cb2e. The image's own config has no Entrypoint, Cmd python3, no User, no WorkingDir and no Volumes; AIEP's create replaces the entrypoint and command. Statically verified present: /usr/local/bin/python3 (-> python3.12, AArch64), /bin/sh, /bin/sleep, /bin/tar, /bin/cat, the ssl/hmac/http/json stdlib modules, libssl and libcrypto, and the CA bundle /etc/ssl/certs/ca-certificates.crt. No benchmark files, credentials, private keys or daemons were found. RUNTIME IDENTITY: uid and gid are recorded as 10001:10001 (approved by the project owner), so load_gateway_image now accepts this file. No account is added to the image: its /etc/passwd (Gate 1c evidence) has no uid 10001, and the process runs as a bare numeric uid:gid.",
   "image": "python:3.12-slim",
-  "repo_digest": null,
-  "image_id": null,
+  "repo_digest": "docker.io/library/python@sha256:c61cffc3bacb94ed026ff8b45d5114b7693dd0420baca0a1ace0e3d0ce9035fd",
+  "image_id": "sha256:c61cffc3bacb94ed026ff8b45d5114b7693dd0420baca0a1ace0e3d0ce9035fd",
   "pin_rule": "Must be pinned by immutable digest (python@sha256:<64 hex>) and by image ID (sha256:<64 hex>). A tag alone is never accepted.",
-  "python": null,
-  "python_note": "UNRESOLVED. Must be recorded from the verified image. (Documentation only, not a value: the official python image is expected to have it at /usr/local/bin/python3, and Python 3.12 would match the host's 3.12.2; both UNVERIFIED.)",
-  "uid": null,
-  "gid": null,
-  "user_note": "UNRESOLVED. uid and gid are explicit configuration with no default: they must be chosen and recorded, and must be a non-root pair that the tmpfs ownership, extraction, verification and execution all use. Nothing is invented here. Whether the image needs a passwd entry for them is UNVERIFIED.",
+  "python": "/usr/local/bin/python3",
+  "python_note": "Verified statically (Gate 1c): /usr/local/bin/python3 is a symlink to python3.12 (Python 3.12.16, an AArch64 ELF) on the image's root filesystem, not on a tmpfs the agent could rewrite. Not executed: that it starts as the chosen numeric uid is verified in a later gate.",
+  "uid": 10001,
+  "gid": 10001,
+  "user_note": "RECORDED: uid 10001 and gid 10001, approved by the project owner and used by every step for the gateway: the container user, the owner of its tmpfs mounts, the exec user for extraction, verification and the gateway process, and the owner check on the injected tree. They are distinct from the agent's verified identity (config/agent_identity.json). Evidence: the image's /etc/passwd lists only root, the standard Debian system accounts and nobody (no uid 10001, and no primary gid 10001 on any account). Its /etc/group was not captured in the Gate 1c report, so that no group named 10001 exists is an inference from standard Debian base groups, not an observation; a numeric gid needs no group entry either way. The image has no passwd entry for this uid, so the gateway's environment supplies HOME=/tmp.",
   "entrypoint": [
     "/bin/sleep"
   ],
@@ -19,7 +19,7 @@
   ],
   "entrypoint_note": "The create request sets exactly this entrypoint and command (policy-validated and re-checked at inspect), so no entrypoint of the base image is ever run.",
   "declared_volumes": [],
-  "declared_volumes_note": "Expected none for python:3.12-slim; UNVERIFIED. Any declared VOLUME would have to be listed here so a tmpfs can neutralise it (GatewayContext.extra_tmpfs).",
+  "declared_volumes_note": "Verified (Gate 1c): the image config declares no Volumes, so no extra tmpfs is needed to neutralise one.",
   "rejected": [
     {
       "image": "localstack/localstack:latest",
@@ -38,11 +38,8 @@
     }
   ],
   "to_verify_after_approval": [
-    "pull python:3.12-slim and record its repo digest and image ID here",
-    "python at the configured path, version, ssl module and CA bundle",
-    "/bin/sleep, /bin/tar, /bin/sh, /bin/cat present",
-    "no declared VOLUME; no ENTRYPOINT that matters (ours replaces it)",
     "tmpfs uid/gid/mode appear in inspect as written; the numeric uid can extract, list and run the code",
-    "record python, uid and gid explicitly (all null until then)"
+    "a created container's inspect reports Image == image_id (containerd image store: the ID is the platform manifest digest)",
+    "python -I starts and imports ssl, hmac, http.client and http.server as the numeric uid with HOME=/tmp on a read-only root"
   ]
 }

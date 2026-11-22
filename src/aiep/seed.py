@@ -24,8 +24,10 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import posixpath
 import re
+import sys
 import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -231,17 +233,21 @@ def parse_seed_archive(data: bytes | BinaryIO, *, root: str = "testbed") -> Seed
     return Seed(TreeManifest(hashlib.sha256(tar).hexdigest(), entries_sorted, head), tar)
 
 
-def build_component_archive(files: dict[str, tuple[bytes, int]], *, mtime: int = 0) -> Seed:
+def build_component_archive(files: dict[str, tuple[bytes, int]], *, mtime: int = 0,
+                            max_file_bytes: int = MAX_FILE_BYTES * 4) -> Seed:
     """Injection tar for a few trusted files, e.g. ``{"claude": (binary_bytes, 0o755)}``.
 
     Directories are created implicitly (mode 0755). Used for the Claude Code binary and the
-    gateway's code; paths are validated like seed paths.
+    gateway's code; paths are validated like seed paths. ``max_file_bytes`` is a per-file ceiling (default 256 MiB); a caller
+    that must ship a larger trusted file (the Claude CLI) raises it explicitly, and the file is still refused above that.
     """
+    if type(max_file_bytes) is not int or max_file_bytes <= 0:
+        raise SeedError("max_file_bytes must be a positive integer")
     items: list[tuple[Entry, bytes | None, int]] = []
     dirs: set[str] = set()
     for rel, (body, mode) in files.items():
         _check_relpath(rel)
-        if len(body) > MAX_FILE_BYTES * 4:
+        if len(body) > max_file_bytes:
             raise SeedError(f"{rel!r} is too large")
         parent = posixpath.dirname(rel)
         while parent:
@@ -340,8 +346,10 @@ def verify_archive(seed: Seed) -> None:
             elif m.issym():
                 entries.append(Entry("l", 0o777, 0, None, m.linkname, m.name))
             elif m.isreg():
-                entries.append(Entry("f", m.mode & 0o777, m.size,
-                                     hashlib.sha256(tf.extractfile(m).read()).hexdigest(), None, m.name))  # type: ignore[union-attr]
+                h, f = hashlib.sha256(), tf.extractfile(m)
+                for block in iter(lambda: f.read(1 << 20), b""):  # type: ignore[union-attr]  # streamed: no second copy of a large file
+                    h.update(block)
+                entries.append(Entry("f", m.mode & 0o777, m.size, h.hexdigest(), None, m.name))
             else:
                 raise SeedError(f"injection tar contains a special entry: {m.name!r}")
     if sorted(entries, key=lambda e: e.path) != sorted(seed.manifest.entries, key=lambda e: e.path):
@@ -349,15 +357,54 @@ def verify_archive(seed: Seed) -> None:
 
 
 # ------------------------------------------------------------------ persistence
+def _write_new(path: Path, data: bytes) -> None:
+    """Create ``path`` (it must not exist), write ``data`` and flush it to disk."""
+    with open(path, "xb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _remove_own(paths: list[Path]) -> None:
+    """Remove files this call created. A failure is reported on stderr and never replaces the error being handled."""
+    for p in paths:
+        try:
+            p.unlink(missing_ok=True)
+        except OSError as e:
+            sys.stderr.write(f"WARNING: could not remove {p}: {type(e).__name__}: {e}\n")
+
+
 def save_seed(directory: Path, seed: Seed, *, stem: str = "seed") -> tuple[Path, Path]:
-    """Write ``<stem>.tar`` and ``<stem>_manifest.json`` into a run/cache directory; never overwrite."""
+    """Write ``<stem>.tar`` and ``<stem>_manifest.json`` into a run/cache directory; never overwrite.
+
+    Both files are written under temporary names and flushed first, then published with ``os.link``, which fails
+    if the target exists (so an existing file is never replaced, and a file that appears meanwhile is not
+    clobbered). The manifest is published last: a manifest without its tar cannot occur, and a failure at any step
+    removes whatever THIS call created (temporary names and anything it already published) and nothing else, so a
+    retry with the same stem can succeed. Only a hard kill (SIGKILL, power loss) between the two publishes can leave
+    a tar without a manifest; that file has no authority (``load_seed`` needs the manifest) and is for the operator to
+    remove.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     tar_path, man_path = directory / f"{stem}.tar", directory / f"{stem}_manifest.json"
-    with open(tar_path, "xb") as f:
-        f.write(seed.tar)
-    with open(man_path, "x") as f:
-        f.write(seed.manifest.to_json() + "\n")
+    for p in (tar_path, man_path):
+        if p.exists() or p.is_symlink():
+            raise FileExistsError(f"{p} already exists; a stored seed is never overwritten")
+    token = f"{os.getpid()}.{os.urandom(6).hex()}"
+    tmp_tar, tmp_man = directory / f".{stem}.tar.{token}.tmp", directory / f".{stem}_manifest.json.{token}.tmp"
+    published: list[Path] = []
+    try:
+        _write_new(tmp_tar, seed.tar)
+        _write_new(tmp_man, (seed.manifest.to_json() + "\n").encode())
+        for tmp, final in ((tmp_tar, tar_path), (tmp_man, man_path)):
+            os.link(tmp, final)  # FileExistsError if it exists: never replaces
+            published.append(final)
+    except BaseException:
+        _remove_own(published)
+        raise
+    finally:
+        _remove_own([tmp_tar, tmp_man])
     return tar_path, man_path
 
 

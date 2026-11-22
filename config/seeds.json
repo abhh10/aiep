@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "note": "Pinned seeds (non-secret hashes). A seed is only used if its tar hash and manifest HEAD/entry count equal this record.",
+  "seeds": {
+    "pytest-dev__pytest-5227": {
+      "directory": ".cache/seeds/pytest-dev__pytest-5227",
+      "sha256": "8727a0bccdb2b21b7faaf33f66d3086738105b64744db051f1b944e8abc6e3b6",
+      "head": "aa6a504d7ea32c59ae245f90682906db5ac5213c",
+      "entries": 689,
+      "image_id": "sha256:c91459f86ed261ab81871b086d7ca2d9fe16abd2ddf374bf172edd5d991fd28b",
+      "source": "scripts/extract_pytest5227_seed.py, 2026-11-19; injected and verified by scripts/inject_pytest5227_seed_check.py"
+    }
+  }
+}

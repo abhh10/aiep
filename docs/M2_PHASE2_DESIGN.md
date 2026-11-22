@@ -1,5 +1,8 @@
 # M2 Phase 2 design: injection-based agent and gateway containers
 
+> **Superseded in part (2026-11-20):** the gateway no longer has an egress-capable network. The current topology (agent-net, proxy-net, egress-net with a restricted CONNECT proxy) is in `docs/M2_EGRESS_ARCHITECTURE.md`; statements below about attaching an egress network to the gateway describe the earlier design.
+
+
 Status: **Step 0b (local software) is implemented, remediated (see below), committed as 81e0e70 and unit-tested with
 fakes. The agent and gateway lifecycle is NOT Docker-validated: none of the lifecycle code has run against Docker.** Two
 disposable inspection containers (the conformance probes of 2026-11-19, below) established facts about the existing instance image,

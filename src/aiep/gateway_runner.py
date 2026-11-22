@@ -32,7 +32,7 @@ GATEWAY_DEST = "/opt/aiep-gw"
 # Everything the gateway imports, and nothing else. ``main()`` finds its configuration at
 # ``<package root>/config`` where the package root is two levels above ``src/aiep/gateway.py``.
 GATEWAY_FILES = (
-    "src/aiep/__init__.py", "src/aiep/gateway.py", "src/aiep/ledger.py", "src/aiep/pricing.py",
+    "src/aiep/__init__.py", "src/aiep/gateway.py", "src/aiep/ledger.py", "src/aiep/listen.py", "src/aiep/pricing.py",
     "config/experiment.json", "config/model_pricing.json",
 )
 
@@ -77,10 +77,12 @@ def load_gateway_image(path: Path) -> GatewayImagePin:
     return GatewayImagePin(ref, image_id, python, uid, gid, tuple(cfg.get("declared_volumes") or ()))
 
 
-def gateway_context(pin: GatewayImagePin, *, agent_network: str, egress_network: str, real_key: str = "") -> GatewayContext:
+def gateway_context(pin: GatewayImagePin, *, agent_network: str, proxy_network: str, real_key: str = "",
+                    agent_cidr: str | None = None) -> GatewayContext:
     """Build the policy context from a verified pin: python, uid, gid and VOLUMEs all come from the recorded config."""
-    return GatewayContext(agent_network=agent_network, egress_network=egress_network, image_id=pin.image_id,
-                          python=pin.python, uid=pin.uid, gid=pin.gid, extra_tmpfs=pin.declared_volumes, real_key=real_key)
+    return GatewayContext(agent_network=agent_network, proxy_network=proxy_network, image_id=pin.image_id,
+                          python=pin.python, uid=pin.uid, gid=pin.gid, extra_tmpfs=pin.declared_volumes, real_key=real_key,
+                          agent_cidr=agent_cidr)
 
 
 class GatewayIntegrityError(RuntimeError):
@@ -102,9 +104,8 @@ def gateway_exec_context(ctx: GatewayContext, *, readable_paths: frozenset[str] 
                        env={"HOME": "/tmp", "PATH": "/usr/local/bin:/usr/bin:/bin", "LC_ALL": "C", "TZ": "UTC"})
 
 
-def inject_verify_start_gateway(api: Any, container_id: str, code: Seed, ctx: GatewayContext,
-                                ectx: ExecContext) -> ExecSession:
-    """Inject ``code``, verify it entry by entry, and only then start the gateway. Returns the running exec."""
+def inject_and_verify_gateway(api: Any, container_id: str, code: Seed, ctx: GatewayContext, ectx: ExecContext) -> None:
+    """Inject ``code`` and verify it entry by entry. Nothing is started."""
     if ectx.user != ctx.user or ectx.python != ctx.python or not ectx.may_start_gateway:
         raise GatewayIntegrityError("the exec context does not match the gateway context")
     verify_archive(code)
@@ -113,5 +114,16 @@ def inject_verify_start_gateway(api: Any, container_id: str, code: Seed, ctx: Ga
                               expect_owner=(ctx.uid, ctx.gid))
     if problems:
         raise GatewayIntegrityError(f"{GATEWAY_DEST} does not match its manifest: {'; '.join(problems[:5])}")
+
+
+def start_gateway(api: Any, container_id: str, ctx: GatewayContext, ectx: ExecContext) -> ExecSession:
+    """The production start: ``python -m aiep.gateway`` by a policy-checked exec. Only called after ``inject_and_verify_gateway``."""
     request = harden_exec([ctx.python, *GATEWAY_COMMAND_TAIL], user=ctx.user, workdir="/", env={}, ctx=ectx)
     return ExecSession(api, container_id, request).start()
+
+
+def inject_verify_start_gateway(api: Any, container_id: str, code: Seed, ctx: GatewayContext,
+                                ectx: ExecContext) -> ExecSession:
+    """Inject ``code``, verify it entry by entry, and only then start the gateway. Returns the running exec."""
+    inject_and_verify_gateway(api, container_id, code, ctx, ectx)
+    return start_gateway(api, container_id, ctx, ectx)

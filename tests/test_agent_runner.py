@@ -10,13 +10,14 @@ import pytest
 
 from aiep import agent_runner as AR
 from aiep import container_exec as CE
+from aiep.limits import AGENT_RUNTIME_PINS
 from aiep.agent_env import experiment_env
 from aiep.agent_runner import (STATUS_CONTAINER_DIED, STATUS_EXITED, STATUS_GATEWAY_STOPPED, STATUS_INVALID,
                                STATUS_TIMEOUT, AgentRunSpec, build_create_kwargs, run_agent)
 from aiep.container_policy import (AgentIdentity, AGENT_KEEPALIVE_COMMAND, AGENT_MEM_BYTES, AGENT_NANO_CPUS, AGENT_PIDS,
                                    PolicyViolation)
 from aiep.patch import HARDENED_GIT
-from aiep.seed import build_component_archive, parse_seed_archive
+from aiep.seed import VERIFY_SCRIPT, build_component_archive, parse_seed_archive
 from fake_docker import ExecResult, FakeAgent, FakeContainerFS, FakeExecApi
 
 MODEL = "claude-sonnet-5-5"
@@ -99,9 +100,16 @@ def good_inspect(spec):
                        "NetworkMode": spec.agent_network, "Memory": AGENT_MEM_BYTES, "PidsLimit": AGENT_PIDS,
                        "NanoCpus": AGENT_NANO_CPUS, "ReadonlyRootfs": True, "Binds": None, "Tmpfs": kw["tmpfs"],
                        "IpcMode": spec.ipc_mode, "ShmSize": shm_bytes(spec.shm_size)},
-        "Mounts": [], "Config": {"User": spec.user, "Env": ["ANTHROPIC_AUTH_TOKEN=tok"]},
-        "NetworkSettings": {"Networks": {spec.agent_network: {}}},
+        "Mounts": [], "Config": {"User": spec.user, "Env": ["ANTHROPIC_AUTH_TOKEN=tok", *[f"{k}={v}" for k, v in AGENT_RUNTIME_PINS.items()]]},
+        "State": {"Running": True, "Paused": False, "Restarting": False, "Dead": False, "Status": "running"},
+        "NetworkSettings": {"Networks": {spec.agent_network: {"NetworkID": AGENT_NET_ID, "IPAddress": "172.30.1.5", "GlobalIPv6Address": "", "Gateway": ""}},
+                            "Ports": {}},
     }
+
+
+AGENT_NET_ID = "net-agent-id"
+AGENT_ROUTES = ("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                "eth0\t00011EAC\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n")  # 172.30.1.0/24 on eth0, no default route
 
 
 class FakeContainer:
@@ -154,9 +162,9 @@ class FakeClient:
         self.containers = Containers()
 
 
-def rig(tmp_path, seed, *, agent=None, handler_wrap=None, **spec_over):
+def rig(tmp_path, seed, *, agent=None, handler_wrap=None, owner=(1000, 1000), **spec_over):
     spec = spec_for(seed, **spec_over)
-    fs = FakeContainerFS(tmp_path / "fs", agent=agent)
+    fs = FakeContainerFS(tmp_path / "fs", agent=agent, owner=owner)
     handler = fs.handler if handler_wrap is None else handler_wrap(fs)
     api = FakeExecApi(handler)
     client = FakeClient(spec, api)
@@ -200,6 +208,7 @@ def test_unsafe_specs_are_refused_before_docker(seed, over):
 def test_spec_repr_hides_the_task_token_and_archives(seed):
     r = repr(spec_for(seed))
     assert "ISSUE-TEXT-CANARY" not in r and "per-run-token" not in r and "tar=" not in r
+    assert REAL_KEY not in r  # forbidden_secrets holds the real API key: it must not appear in a log line or traceback
 
 
 @pytest.mark.parametrize("over", [{"task_text": ""}, {"task_text": "  \n "}, {"task_text": "x" * (AR.MAX_TASK_BYTES + 1)}])
@@ -284,10 +293,10 @@ def test_injection_order_and_destinations(tmp_path, seed):
     spec, fs, api, client = rig(tmp_path, seed, agent=edit_agent())
     go(spec, client)
     names = [c["cmd"][0] for c in api.calls]
-    assert names[:5] == ["/bin/sh", "/bin/tar", "/opt/miniconda3/bin/python", "/bin/tar", "/opt/miniconda3/bin/python"]
-    assert api.calls[1]["cmd"][-1] == "/testbed" and api.calls[3]["cmd"][-1] == "/opt/aiep"
-    assert names.index("/opt/aiep/claude") == 5  # the agent starts only after the identity check and both injections verified
-    assert api.stdins[1] == seed.tar and api.stdins[3] == COMPONENTS.tar
+    assert names[:6] == ["/bin/cat", "/bin/sh", "/bin/tar", "/opt/miniconda3/bin/python", "/bin/tar", "/opt/miniconda3/bin/python"]
+    assert api.calls[2]["cmd"][-1] == "/testbed" and api.calls[4]["cmd"][-1] == "/opt/aiep"
+    assert names.index("/opt/aiep/claude") == 6  # the agent starts only after the identity check and both injections verified
+    assert api.stdins[2] == seed.tar and api.stdins[4] == COMPONENTS.tar
 
 
 # ---------------- seed verification failures ----------------
@@ -498,7 +507,8 @@ def test_unexpected_exec_failure_still_tears_down(tmp_path, seed):
         raise RuntimeError("daemon went away")
 
     spec, fs, api, client = rig(tmp_path, seed)
-    api.exec_create = boom
+    real_create = api.exec_create
+    api.exec_create = lambda container, cmd=None, **k: real_create(container, cmd, **k) if cmd[0] == "/bin/cat" else boom()  # the route-table read works
     with pytest.raises(RuntimeError, match="daemon went away"):
         go(spec, client)
     assert client.container.calls[-1] == "remove(force=True,v=True)"
@@ -584,7 +594,7 @@ def test_a_wrong_interpreter_fails_the_run_without_falling_back_or_starting_the_
     with pytest.raises(AR.ExecError, match="exit code 127"):
         go(spec, client)
     names = [c["cmd"][0] for c in api.calls]
-    assert names == ["/bin/sh", "/bin/tar", "/usr/bin/python3"]  # one attempt, no retry with another interpreter
+    assert names == ["/bin/cat", "/bin/sh", "/bin/tar", "/usr/bin/python3"]  # one attempt, no retry with another interpreter
     assert agent.seen_stdin == [] and client.container.calls[-1] == "remove(force=True,v=True)"
 
 
@@ -604,14 +614,15 @@ def test_a_missing_or_different_account_makes_the_run_invalid_before_injection(t
     client = FakeClient(spec, api)
     res = go(spec, client)
     assert res.status == STATUS_INVALID and not res.valid and needle in res.invalid_reason
-    assert [c["cmd"][0] for c in api.calls] == ["/bin/sh"]  # nothing injected, nothing run
+    assert [c["cmd"][0] for c in api.calls] == ["/bin/cat", "/bin/sh"]  # nothing injected, nothing run
     assert agent.seen_stdin == [] and res.patch is None and res.removed
 
 
 def test_the_probe_runs_as_the_identity_with_the_experiment_environment(tmp_path, seed):
     spec, fs, api, client = rig(tmp_path, seed, agent=edit_agent())
     go(spec, client)
-    probe = api.calls[0]
+    assert api.calls[0]["cmd"] == ["/bin/cat", "/proc/net/route"] and api.calls[0]["user"] == "1000:1000"  # the attachment check reads the route table first
+    probe = api.calls[1]
     assert probe["cmd"][:2] == ["/bin/sh", "-c"] and probe["user"] == "1000:1000"
     assert probe["environment"] == experiment_env(IDENT)
 
@@ -666,7 +677,7 @@ PREVIOUS_CREATE_KEYS = {"cap_drop", "command", "detach", "environment", "image",
                         "nano_cpus", "network", "pids_limit", "read_only", "security_opt", "tmpfs", "user", "working_dir"}
 PREVIOUS_TMPFS = {  # exactly what the runner produced before /dev/shm was made explicit (identity 1000:1000, default sizes)
     "/testbed": "rw,exec,nosuid,nodev,size=192m,uid=1000,gid=1000,mode=0755",
-    "/opt/aiep": "rw,exec,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0755",
+    "/opt/aiep": "rw,exec,nosuid,nodev,size=416m,uid=1000,gid=1000,mode=0755",
     "/tmp": "rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700",
     "/home/nonroot": "rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700",
 }
@@ -743,3 +754,250 @@ def test_the_configured_size_not_a_constant_is_what_inspect_is_compared_with(tmp
     with pytest.raises(PolicyViolation, match="ShmSize"):
         go(spec, client)
     assert "start" not in client.container.calls
+
+
+# ---------------- ownership of the injected trees is verified (regression: run_agent used to skip the owner check) ----------------
+def test_the_identity_the_tests_use_is_1000_1000():
+    assert (IDENT.uid, IDENT.gid) == (1000, 1000)
+
+
+@pytest.mark.parametrize("owner", [(0, 0), (1000, 1001), (1001, 1000), None])  # None: the listing reports the real file owner
+def test_wrong_owner_of_the_seed_invalidates_the_run_before_the_agent_exists(tmp_path, seed, owner):
+    agent = edit_agent()
+    spec, fs, api, client = rig(tmp_path, seed, agent=agent, owner=owner)
+    res = go(spec, client)
+    assert res.valid is False and res.status == STATUS_INVALID and "owner differs" in res.invalid_reason
+    assert "/testbed" in res.invalid_reason and agent.seen_stdin == [] and res.patch is None and res.removed
+
+
+def _rewrite_listing(rewrite, dest):
+    def wrap(fs):
+        def handler(argv, rec, stdin):
+            res = fs.handler(argv, rec, stdin)
+            if VERIFY_SCRIPT in argv and argv[-1] == dest:
+                res.stdout = json.dumps(rewrite(json.loads(res.stdout))).encode()
+            return res
+        return handler
+    return wrap
+
+
+def test_wrong_owner_of_the_components_also_invalidates_the_run(tmp_path, seed):
+    agent = edit_agent()
+    wrap = _rewrite_listing(lambda rows: [[*r[:6], 0, 0] for r in rows], "/opt/aiep")
+    spec, fs, api, client = rig(tmp_path, seed, agent=agent, handler_wrap=wrap)
+    res = go(spec, client)
+    assert res.valid is False and "/opt/aiep" in res.invalid_reason and "owner differs" in res.invalid_reason
+    assert agent.seen_stdin == []
+
+
+def test_a_listing_that_reports_no_owners_cannot_skip_the_check(tmp_path, seed):
+    agent = edit_agent()
+    wrap = _rewrite_listing(lambda rows: [r[:6] for r in rows], "/testbed")
+    spec, fs, api, client = rig(tmp_path, seed, agent=agent, handler_wrap=wrap)
+    res = go(spec, client)
+    assert res.valid is False and "owner not reported" in res.invalid_reason and agent.seen_stdin == []
+
+
+def test_the_expected_owner_comes_from_the_verified_identity_not_a_constant(tmp_path, seed):
+    other = AgentIdentity(name="nonroot", uid=1234, gid=1234, home="/home/nonroot")
+    spec = spec_for(seed, identity=other)
+    fs = FakeContainerFS(tmp_path / "fs", agent=edit_agent(), account=("nonroot", 1234, 1234, "/home/nonroot"), owner=(1000, 1000))
+    client = FakeClient(spec, FakeExecApi(fs.handler))
+    res = go(spec, client)
+    assert res.valid is False and "owner differs" in res.invalid_reason and "1234:1234" in res.invalid_reason
+
+
+def test_correct_ownership_passes_and_the_agent_runs(tmp_path, seed):
+    agent = edit_agent()
+    spec, fs, api, client = rig(tmp_path, seed, agent=agent)
+    res = go(spec, client)
+    assert res.valid is True and res.status == STATUS_EXITED and len(agent.seen_stdin) == 1
+
+
+# ---------------- component sizing, recomputed against the policy constants ----------------
+def test_component_sizing_arithmetic_fits_the_policy_caps():
+    from aiep.container_exec import MAX_STDIN_BYTES
+    from aiep.container_policy import (AGENT_MEM_BYTES, TMPFS_MAX_EACH_BYTES, TMPFS_MAX_TOTAL_BYTES, _parse_size,
+                                       validate_shm_size)
+    MiB = 1024**2
+    sizes = {"testbed": "192m", "components": AR.COMPONENTS_TMPFS_SIZE, "tmp": "128m", "home": "128m"}
+    parsed = {k: _parse_size(v) for k, v in sizes.items()}
+    shm = validate_shm_size("64m")
+    assert AR.MAX_COMPONENT_FILE_BYTES == 400 * MiB and parsed["components"] == 416 * MiB
+    assert parsed["components"] >= AR.MAX_COMPONENT_FILE_BYTES + 16 * MiB  # ceiling plus 16 MiB slack
+    assert parsed["components"] <= TMPFS_MAX_EACH_BYTES
+    assert sum(parsed.values()) + shm == 928 * MiB <= TMPFS_MAX_TOTAL_BYTES == 1024 * MiB
+    assert AGENT_MEM_BYTES - (sum(parsed.values()) + shm) >= 1024 * MiB  # a completely full tmpfs still leaves >= 1 GiB for processes
+    assert AR.MAX_COMPONENT_FILE_BYTES + 1024 * 1024 < MAX_STDIN_BYTES  # the injection tar fits the exec stdin cap with room for tar headers
+
+
+def test_the_default_spec_uses_the_computed_components_size_and_passes_policy(seed):
+    spec = spec_for(seed)
+    assert spec.components_size == AR.COMPONENTS_TMPFS_SIZE == "416m"
+    kw = build_create_kwargs(spec)  # PolicyViolation if the aggregate or any single mount were over the cap
+    assert "size=416m" in kw["tmpfs"]["/opt/aiep"]
+
+
+def test_the_claude_pin_ceiling_equals_the_runners_component_ceiling():
+    cfg = json.loads((Path(__file__).resolve().parents[1] / "config" / "claude_cli.json").read_text())
+    assert cfg["max_binary_bytes"] == AR.MAX_COMPONENT_FILE_BYTES
+
+
+def test_a_larger_components_tmpfs_is_still_capped_by_the_policy(seed):
+    for size in ("513m", "600m"):
+        with pytest.raises(PolicyViolation):
+            build_create_kwargs(spec_for(seed, components_size=size))
+    with pytest.raises(PolicyViolation):  # 192 + 512 + 128 + 128 + 64 = 1024 is allowed; one more MiB is not
+        build_create_kwargs(spec_for(seed, components_size="512m", tmp_size="129m"))
+
+
+# ---------------- the central wall-clock ceiling (the reaper's safety margin depends on it) ----------------
+@pytest.mark.parametrize("secs", [0, -1, 3600.5, 7200, 1e9, True])
+def test_a_wall_clock_outside_the_central_limits_is_refused_before_any_docker_call(tmp_path, seed, secs):
+    spec, fs, api, client = rig(tmp_path, seed, wall_clock_s=secs)
+    with pytest.raises(ValueError, match="wall_clock_s"):
+        go(spec, client)
+    assert client.created == [] and api.calls == []
+
+
+def test_the_default_wall_clock_is_the_central_default(seed):
+    from aiep.limits import DEFAULT_WALL_CLOCK_S
+    assert AgentRunSpec.__dataclass_fields__["wall_clock_s"].default == DEFAULT_WALL_CLOCK_S == 1800.0
+
+
+# ---------------- Claude Code's max_tokens must fit the gateway cap (measured: it asks for 128000 by default) ----------------
+def test_the_agent_is_pinned_to_the_gateway_max_tokens_cap_identically_for_both_configs(seed):
+    from aiep import gateway as GW
+    from aiep.limits import AGENT_MAX_OUTPUT_TOKENS
+    a, b = build_create_kwargs(spec_for(seed, config_label="A")), build_create_kwargs(spec_for(seed, config_label="B"))
+    assert a["environment"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == str(AGENT_MAX_OUTPUT_TOKENS) == b["environment"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"]
+    assert AGENT_MAX_OUTPUT_TOKENS <= GW.MAX_TOKENS_CAP  # every request Claude can make passes the gateway's cap
+    assert a["environment"] == b["environment"]
+
+
+@pytest.mark.parametrize("value", ["128000", "64001", "0", "-1", "abc", "", "64000 ", "1e5"])
+def test_any_other_output_token_value_is_refused_by_the_policy(seed, value):
+    from aiep.agent_runner import agent_context
+    from aiep.container_policy import _check_agent_env
+    spec = spec_for(seed)
+    env = dict(build_create_kwargs(spec)["environment"])
+    _check_agent_env(env, agent_context(spec))  # the real environment passes
+    env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = value
+    with pytest.raises(PolicyViolation, match="MAX_OUTPUT_TOKENS"):
+        _check_agent_env(env, agent_context(spec))
+
+
+# ---------------- audit sprint: truncated Claude output is a censored run, never a graded one ----------------
+def _big_output_agent(n):
+    def act(task, wd):
+        (wd / "a.py").write_text((wd / "a.py").read_text() + "# agent fix\n")  # a perfectly good patch exists
+        return b"x" * n
+    return FakeAgent(act=act)
+
+
+def test_output_over_the_cap_makes_the_run_invalid_with_no_patch_extraction(tmp_path, seed, monkeypatch):
+    monkeypatch.setattr(AR, "MAX_CLAUDE_OUTPUT", 2000)
+    spec, fs, api, client = rig(tmp_path, seed, agent=_big_output_agent(5000))
+    res = go(spec, client)
+    assert res.status == "exited" and res.claude_exit_code is not None  # the process itself ended normally...
+    assert res.claude_output_truncated is True
+    assert res.valid is False and "censored" in res.invalid_reason and "truncated" in res.invalid_reason  # ...but the run is censored
+    assert res.patch is None and res.patch_error is None  # extraction never ran: nothing can reach grading
+    assert "quiesced" not in res.timeline and "extracted" not in res.timeline
+    assert res.removed is True  # the container is still removed
+    rec = AR.record_of(res)
+    assert rec["claude_output_truncated"] is True and rec["valid"] is False and "censored" in rec["invalid_reason"]  # kept in run.json
+    assert len(res.claude_stdout) <= 2000 + 65536  # what was read is kept as evidence (bounded)
+
+
+def test_output_at_or_under_the_cap_is_graded_normally(tmp_path, seed, monkeypatch):
+    monkeypatch.setattr(AR, "MAX_CLAUDE_OUTPUT", 2000)
+    spec, fs, api, client = rig(tmp_path, seed, agent=_big_output_agent(1000))
+    res = go(spec, client)
+    assert res.claude_output_truncated is False and res.valid is True and res.invalid_reason is None
+    assert res.patch is not None and res.patch.status == "ok"
+
+
+def test_truncation_is_invalid_even_when_the_gateway_stopped_the_run_for_a_valid_reason(tmp_path, seed, monkeypatch):
+    # budget_exhausted is a VALID stop; combined with censored output the run still must not be graded
+    monkeypatch.setattr(AR, "MAX_CLAUDE_OUTPUT", 2000)
+    spec, fs, api, client = rig(tmp_path, seed, agent=_big_output_agent(5000))
+    res = go(spec, client, stopped=lambda: "budget_exhausted")
+    assert res.status in ("gateway_stopped", "exited")
+    if res.claude_output_truncated:
+        assert res.valid is False and res.patch is None
+
+
+def test_a_truncated_run_cannot_reach_prediction_writing(tmp_path, seed, monkeypatch):
+    # m2_run writes predictions only when agent.valid and patch.status == "ok": both are false for a truncated run
+    monkeypatch.setattr(AR, "MAX_CLAUDE_OUTPUT", 2000)
+    spec, fs, api, client = rig(tmp_path, seed, agent=_big_output_agent(5000))
+    res = go(spec, client)
+    assert not (res.valid and res.patch is not None and res.patch.status == "ok")
+
+
+# ---------------- audit sprint: runtime pins (output cap, retries, timeouts) ----------------
+def test_the_claude_runtime_pins_are_identical_for_a_and_b_and_cover_retries_and_timeouts(seed):
+    from aiep.limits import AGENT_RUNTIME_PINS
+    a, b = build_create_kwargs(spec_for(seed, config_label="A")), build_create_kwargs(spec_for(seed, config_label="B"))
+    for k, v in AGENT_RUNTIME_PINS.items():
+        assert a["environment"][k] == b["environment"][k] == v
+    assert set(AGENT_RUNTIME_PINS) == {"CLAUDE_CODE_MAX_OUTPUT_TOKENS", "CLAUDE_CODE_MAX_RETRIES", "API_TIMEOUT_MS",
+                                       "BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS"}
+    assert a["environment"] == b["environment"]
+
+
+@pytest.mark.parametrize("key,bad", [("CLAUDE_CODE_MAX_RETRIES", "0"), ("CLAUDE_CODE_MAX_RETRIES", "99"), ("API_TIMEOUT_MS", "1"),
+                                     ("BASH_DEFAULT_TIMEOUT_MS", "999999"), ("BASH_MAX_TIMEOUT_MS", "1")])
+def test_a_different_runtime_pin_value_is_refused(seed, key, bad):
+    from aiep.agent_runner import agent_context
+    from aiep.container_policy import _check_agent_env
+    spec = spec_for(seed)
+    env = dict(build_create_kwargs(spec)["environment"])
+    env[key] = bad
+    with pytest.raises(PolicyViolation, match=key):
+        _check_agent_env(env, agent_context(spec))
+
+
+@pytest.mark.parametrize("key", ["CLAUDE_CODE_MAX_OUTPUT_TOKENS", "CLAUDE_CODE_MAX_RETRIES", "API_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS",
+                                 "BASH_MAX_TIMEOUT_MS"])
+def test_an_omitted_runtime_pin_is_refused_it_cannot_fall_back_to_the_binarys_default(seed, key):
+    from aiep.agent_runner import agent_context
+    from aiep.container_policy import _check_agent_env
+    spec = spec_for(seed)
+    env = dict(build_create_kwargs(spec)["environment"])
+    del env[key]
+    with pytest.raises(PolicyViolation, match=key):
+        _check_agent_env(env, agent_context(spec))
+
+
+def test_verify_inspect_checks_the_created_containers_own_environment_for_every_pin(seed):
+    from aiep.agent_runner import agent_context
+    from aiep.container_policy import verify_inspect
+    spec = spec_for(seed)
+    good = good_inspect(spec)
+    verify_inspect("agent", good, agent_context(spec))
+    for key in AGENT_RUNTIME_PINS:
+        broken = json.loads(json.dumps(good))
+        broken["Config"]["Env"] = [e for e in broken["Config"]["Env"] if not e.startswith(key + "=")]
+        with pytest.raises(PolicyViolation, match=key):
+            verify_inspect("agent", broken, agent_context(spec))
+        changed = json.loads(json.dumps(good))
+        changed["Config"]["Env"] = [e if not e.startswith(key + "=") else f"{key}=1" for e in changed["Config"]["Env"]]
+        with pytest.raises(PolicyViolation, match=key):
+            verify_inspect("agent", changed, agent_context(spec))
+
+
+def test_the_output_token_pin_is_validated_against_the_gateways_configured_cap(seed):
+    import dataclasses
+    from aiep import gateway as GW
+    from aiep.agent_runner import agent_context
+    from aiep.container_policy import verify_inspect
+    from aiep.limits import AGENT_MAX_OUTPUT_TOKENS, GATEWAY_MAX_TOKENS_CAP
+    assert GATEWAY_MAX_TOKENS_CAP == GW.MAX_TOKENS_CAP  # the orchestrator's copy of the cap is the gateway's own constant
+    spec = spec_for(seed)
+    ctx = agent_context(spec)
+    assert ctx.gateway_max_tokens_cap == GW.MAX_TOKENS_CAP >= AGENT_MAX_OUTPUT_TOKENS
+    with pytest.raises(PolicyViolation, match="exceeds the gateway's max_tokens cap"):
+        dataclasses.replace(ctx, gateway_max_tokens_cap=AGENT_MAX_OUTPUT_TOKENS - 1)  # a lower gateway cap would refuse every request
+    verify_inspect("agent", good_inspect(spec), ctx)

@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "note": "Pre-registered workflow prompts. Config A and Config B share the template and differ ONLY in the workflow line. Editing any text below changes its hash: update the hash in the same commit and say so, because every run records these hashes.",
+  "placeholders": {
+    "issue": "<<ISSUE>>",
+    "workflow": "<<WORKFLOW>>"
+  },
+  "template": "You are working in a Python repository checked out at /testbed. Resolve the GitHub issue below by editing the repository's files in place.\n\n<issue>\n<<ISSUE>>\n</issue>\n\n<<WORKFLOW>>\n\nWork only inside /testbed. Do not commit and do not create branches. When you are done, stop and reply with a one-line summary of what you changed.\n",
+  "workflows": {
+    "A": "Workflow: investigate the code to understand the issue, implement a fix, and then stop.",
+    "B": "Workflow: investigate the code to understand the issue and implement a fix. Then run the repository's existing tests that are relevant to your change, analyse any failures, revise the fix, and repeat until the relevant tests pass or you can make no further progress. Then stop."
+  },
+  "sha256": {
+    "template": "86571bc70d453965dfec954dae6c2e3a073bf61ddbdc2656bc7f5667846d7158",
+    "A": "5e44cde50fea6d6c70cc65c0c97043a7c8fe9357d9468b4492305c0db4d64082",
+    "B": "f7ad00720d74ee2467e1f7854e432d3cb09d435185383f691d8712dad6710111"
+  }
+}
