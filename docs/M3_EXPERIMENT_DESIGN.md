@@ -128,3 +128,10 @@ validation only flags it.
 
 Bug found and fixed while doing this: `m2_run.prepare` reused the name `experiment` for the model config it loads, so `run.json["experiment"]` held the model config instead of the scheduled slot's identity (and for ordinary
 runs, a non-null dict). It is now the identity or `null`; a regression test covers the round trip.
+
+## Two cost measurements per result row
+Every scored row records BOTH costs as separate fields that never overwrite or substitute for each other: `cost_usd_computed` (the gateway's measured token usage priced from the ledger; source in
+`gateway_cost_source`) and `claude_reported_cost_usd` (Claude Code's own `total_cost_usd` from `run.json["usage_cli_estimate"]`; a client-side ESTIMATE, source in `claude_reported_cost_source`). A missing, null
+or invalid Claude estimate is stored as null, never as the gateway cost or zero; an unreadable gateway cost keeps its existing value `"0"` and is not filled from the Claude figure. The new fields are optional in
+`validate_row`, so rows written before them stay valid (results schema version unchanged). `aiep.analysis` reports them in separate fields (per-arm `claude_reported_cost_usd_total/mean/runs/missing_runs`, the paired
+Claude-reported difference over pairs where both runs have one, and a descriptive `gateway_vs_claude_reported` agreement check); the gateway figures, the cost ratio and the uncached-equivalent sensitivity are unchanged.

@@ -11,6 +11,7 @@ flag the valid-runs analysis uses: the handoff passed (ready or ready_flagged) A
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from decimal import Decimal
@@ -46,6 +47,22 @@ def uncached_equivalent_usd(tokens: Mapping[str, int], pricing: Any) -> str:
     return format(usd, "f")
 
 
+_PLAIN_DECIMAL = re.compile(r"^\d+(\.\d+)?$")
+
+
+def claude_reported_cost(run: Mapping[str, Any]) -> tuple[str | None, str | None]:
+    """(cost, source) of Claude Code's OWN reported cost, from ``run.json["usage_cli_estimate"]``. This is a client-side ESTIMATE, not a measurement, and is kept apart from the gateway's
+    measured cost: a missing block, a block without a cost, or a cost that is not a finite non-negative number gives (None, None). It never falls back to, or is filled from, the gateway cost."""
+    est = run.get("usage_cli_estimate")
+    if not isinstance(est, Mapping):
+        return None, None
+    v = est.get("total_cost_usd")
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
+        return None, None
+    src = est.get("source")
+    return format(Decimal(str(v)), "f"), (src if isinstance(src, str) else None)
+
+
 def build_row(run_dir: Path, identity: Mapping[str, Any], handoff: Mapping[str, Any], grading: Mapping[str, Any] | None, transcript: Mapping[str, Any] | None,
               *, definition_sha256: str, pricing: Any, repo: str) -> dict[str, Any]:
     run = json.loads((Path(run_dir) / "run.json").read_text())
@@ -64,6 +81,7 @@ def build_row(run_dir: Path, identity: Mapping[str, Any], handoff: Mapping[str, 
         cost = format(Decimal(str(um.get("computed_usd_upper_bound_basis"))), "f")
     except Exception:
         cost = "0"
+    claude_cost, claude_src = claude_reported_cost(run)
     row = {
         "schema": SCHEMA, "experiment_id": identity["experiment_id"], "definition_sha256": definition_sha256, "slot_id": identity["slot_id"], "task_id": identity["task_id"],
         "repo": repo, "arm": identity["arm"], "repetition": identity["repetition"], "pair_id": identity["pair_id"], "order_index": identity["order_index"],
@@ -79,7 +97,8 @@ def build_row(run_dir: Path, identity: Mapping[str, Any], handoff: Mapping[str, 
         "f2p_passed": g.get("f2p_passed"), "f2p_total": g.get("f2p_total"), "p2p_maintained": g.get("p2p_maintained"), "p2p_total": g.get("p2p_total"),
         "patch_applied": g.get("patch_applied"), "harness_errors": g.get("errors"),
         "patch_sha256": patch.get("sha256"), "patch_size": patch.get("size"),
-        "cost_usd_computed": cost, "cost_exact": bool(um.get("exact")) and acc.get("exact") is True, "accounting_complete": acc.get("complete") is True,
+        "cost_usd_computed": cost, "gateway_cost_source": um.get("source") if isinstance(um.get("source"), str) else None,
+        "claude_reported_cost_usd": claude_cost, "claude_reported_cost_source": claude_src, "cost_exact": bool(um.get("exact")) and acc.get("exact") is True, "accounting_complete": acc.get("complete") is True,
         "upper_bound_entries": um.get("entries_charged_at_max_tokens_upper_bound"), "tokens": tokens, "uncached_equivalent_usd": uncached_equivalent_usd(tokens, pricing),
         "requests": int(rs.get("finished_requests", um.get("requests") or 0)), "non_success_requests": int(rs.get("non_success") or 0),
         "request_categories": dict(rs.get("categories") or {}), "gateway_budget_usd": (run.get("limits") or {}).get("budget_usd"),
@@ -117,6 +136,9 @@ def validate_row(row: Mapping[str, Any]) -> None:
         raise ResultsError("slot_id does not match experiment, task, arm and repetition")
     for k in ("cost_usd_computed", "uncached_equivalent_usd"):
         Decimal(row[k])
+    c = row.get("claude_reported_cost_usd")  # optional (rows written before it existed stay valid); when present it is null or a plain non-negative decimal string
+    if c is not None and not (isinstance(c, str) and _PLAIN_DECIMAL.fullmatch(c)):
+        raise ResultsError("claude_reported_cost_usd must be null or a plain non-negative decimal string")
     json.dumps(row)
 
 

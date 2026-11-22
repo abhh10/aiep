@@ -53,6 +53,11 @@ def _slot_outcome(row: Mapping[str, Any]) -> bool:
     return row.get("resolved") is True and row.get("graded") is True
 
 
+def _claude_costs(rows: Sequence[Mapping[str, Any]]) -> list[Decimal]:
+    """Claude-reported costs (client-side ESTIMATES) of the rows that have one. Rows without one are counted, never zero-filled or filled from the gateway cost."""
+    return [_d(r["claude_reported_cost_usd"]) for r in rows if r.get("claude_reported_cost_usd") is not None]
+
+
 def _arm_stats(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     if not rows:
         return {"runs": 0}
@@ -60,6 +65,7 @@ def _arm_stats(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     unc = [_d(r["uncached_equivalent_usd"]) for r in rows]
     resolved = sum(_slot_outcome(r) for r in rows)
     wall = [r["wall_seconds"] for r in rows if isinstance(r.get("wall_seconds"), (int, float))]
+    claude = _claude_costs(rows)
     tok = {k: sum(int((r.get("tokens") or {}).get(k, 0)) for r in rows) for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_unclassified_tokens",
                                                                                  "cache_write_5m_tokens", "cache_write_1h_tokens")}
     return {"runs": len(rows), "resolved": resolved, "cost_usd_total": format(sum(costs), "f"), "cost_usd_mean": format(sum(costs) / len(costs), "f"),
@@ -70,7 +76,10 @@ def _arm_stats(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "test_usage_runs": sum(bool(r.get("test_usage")) for r in rows), "compliant_runs": sum(bool(r.get("compliance")) for r in rows),
             "test_runs_mean": sum(r.get("test_runs", 0) for r in rows) / len(rows), "test_fix_cycles_mean": sum(r.get("test_fix_cycles", 0) for r in rows) / len(rows),
             "cap_exceeded_runs": sum(bool(r.get("cap_exceeded")) for r in rows), "inexact_accounting_runs": sum(not r.get("cost_exact") for r in rows),
-            "budget_or_stop_limited_runs": sum(1 for r in rows if r.get("stop_reason") == "budget_exhausted")}
+            "budget_or_stop_limited_runs": sum(1 for r in rows if r.get("stop_reason") == "budget_exhausted"),
+            # Claude Code's own reported cost: a SEPARATE measurement from the gateway cost above (a client-side estimate, not measured by AIEP)
+            "claude_reported_cost_usd_total": format(sum(claude), "f") if claude else None, "claude_reported_cost_usd_mean": format(sum(claude) / len(claude), "f") if claude else None,
+            "claude_reported_cost_runs": len(claude), "claude_reported_cost_missing_runs": len(rows) - len(claude)}
 
 
 def _pair_table(pairs: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]], seed: str, set_name: str) -> dict[str, Any]:
@@ -124,9 +133,19 @@ def analyze(rows: Iterable[Mapping[str, Any]], definition: Mapping[str, Any], *,
         a_rows, b_rows = sp["A"], sp["B"]
         paired_cost = [_d(b["cost_usd_computed"]) - _d(a["cost_usd_computed"]) for a, b in pairs.values()]
         paired_unc = [_d(b["uncached_equivalent_usd"]) - _d(a["uncached_equivalent_usd"]) for a, b in pairs.values()]
+        both = [(a, b) for a, b in pairs.values() if a.get("claude_reported_cost_usd") is not None and b.get("claude_reported_cost_usd") is not None]
+        paired_claude = [_d(b["claude_reported_cost_usd"]) - _d(a["claude_reported_cost_usd"]) for a, b in both]
+        diffs = [_d(r["claude_reported_cost_usd"]) - _d(r["cost_usd_computed"]) for r in (*a_rows, *b_rows) if r.get("claude_reported_cost_usd") is not None]
         out[name] = {"outcomes": _pair_table(pairs, seed, name), "per_arm": {"A": _arm_stats(a_rows), "B": _arm_stats(b_rows)},
                      "paired_cost_difference_B_minus_A_usd": {"mean": format(sum(paired_cost) / len(paired_cost), "f") if paired_cost else None,
                                                               "uncached_equivalent_mean": format(sum(paired_unc) / len(paired_unc), "f") if paired_unc else None},
+                     "paired_claude_reported_cost_difference_B_minus_A_usd": {
+                         "pairs_with_both": len(both), "mean": format(sum(paired_claude) / len(paired_claude), "f") if paired_claude else None,
+                         "note": "from Claude Code's own reported cost (a client-side estimate, NOT measured); only pairs where BOTH runs have one; reported separately from the gateway figures"},
+                     "gateway_vs_claude_reported": {
+                         "rows_with_both": len(diffs), "mean_claude_minus_gateway_usd": format(sum(diffs) / len(diffs), "f") if diffs else None,
+                         "max_abs_difference_usd": format(max(abs(x) for x in diffs), "f") if diffs else None,
+                         "note": "descriptive agreement check between the two separate measurements; a missing Claude-reported cost is never substituted by the gateway cost or the reverse"},
                      "cost_ratio_B_over_A": (format(sum(_d(r["cost_usd_computed"]) for r in b_rows) / sum(_d(r["cost_usd_computed"]) for r in a_rows), ".4f")
                                              if a_rows and sum(_d(r["cost_usd_computed"]) for r in a_rows) > 0 else None)}
     excluded = [r for r in by_slot.values() if not r.get("valid_measurement")]
@@ -155,6 +174,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
               f"both resolved: {len(o['cells']['both_resolved'])}  neither: {len(o['cells']['neither_resolved'])}  A only: {len(o['cells']['A_only'])}  B only: {len(o['cells']['B_only'])}",
               f"resolution rate A: {o['resolution_rate']['A']}  B: {o['resolution_rate']['B']}  difference (B - A): {o['difference_B_minus_A']}",
               f"exact McNemar two-sided p: {o['mcnemar_exact_two_sided_p']}  bootstrap 95% interval: {o['bootstrap_95_interval']}  ({o['interpretation']})",
-              f"cost total A: {s['per_arm']['A'].get('cost_usd_total')}  B: {s['per_arm']['B'].get('cost_usd_total')}  ratio B/A: {s['cost_ratio_B_over_A']}", ""]
+              f"gateway-measured cost total A: {s['per_arm']['A'].get('cost_usd_total')}  B: {s['per_arm']['B'].get('cost_usd_total')}  ratio B/A: {s['cost_ratio_B_over_A']}",
+              f"Claude-reported cost total (client estimate, not measured) A: {s['per_arm']['A'].get('claude_reported_cost_usd_total')} "
+              f"({s['per_arm']['A'].get('claude_reported_cost_runs', 0)} runs)  B: {s['per_arm']['B'].get('claude_reported_cost_usd_total')} ({s['per_arm']['B'].get('claude_reported_cost_runs', 0)} runs)", ""]
     L += [f"not run: {report['not_run_tasks']}", f"exclusions from valid runs: {report['exclusions_from_valid_runs']}"]
     return "\n".join(L) + "\n"
