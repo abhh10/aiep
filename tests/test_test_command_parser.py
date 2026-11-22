@@ -84,8 +84,12 @@ def parse(lines, cap=5):
     return parse_transcript("\n".join(lines + [RESULT]) + "\n", cycle_cap=cap)
 
 
-def test_nonzero_exit_flagged_is_error_is_a_failed_run_even_with_quiet_output():
+def test_a_nonzero_exit_alone_is_not_a_failed_suite_but_reported_failures_are():
+    """Version 2: a bare 'Exit code 1' cannot tell a missing runner from failing tests, so it is `unknown`; a completed run that reports failures is `completed_failed`."""
     m = parse([tu(1, "Bash", command="/opt/miniconda3/envs/testbed/bin/pytest x"), tr(1, "Exit code 1", is_error=True), tu(2, "Edit", file_path="f.py"),
+               tu(3, "Bash", command="pytest x"), tr(3, "1 passed in 0.1s", is_error=False)])
+    assert (m["test_runs"], m["test_runs_failed"], m["test_runs_unknown"], m["test_fix_cycles"]) == (2, 0, 1, 0)
+    m = parse([tu(1, "Bash", command="pytest x"), tr(1, "1 failed in 0.1s", is_error=True), tu(2, "Edit", file_path="f.py"),
                tu(3, "Bash", command="pytest x"), tr(3, "1 passed in 0.1s", is_error=False)])
     assert (m["test_runs"], m["test_runs_failed"], m["test_fix_cycles"], m["compliance"]) == (2, 1, 1, True)
 
@@ -108,7 +112,8 @@ def test_a_grep_for_pytest_is_not_a_test_run_and_makes_no_cycle():
 
 def test_cycle_cap_exceeded_is_reported():
     lines = []
-    for i in range(0, 14, 2):
-        lines += [tu(i + 1, "Bash", command="pytest x"), tr(i + 1, "1 failed", is_error=True), tu(i + 2, "Edit", file_path="f.py")]
+    for i in range(0, 16, 2):
+        lines += [tu(i + 1, "Bash", command="pytest x"), tr(i + 1, "1 failed in 0.1s", is_error=True), tu(i + 2, "Edit", file_path="f.py")]
+    lines += [tu(99, "Bash", command="pytest x"), tr(99, "1 failed in 0.1s", is_error=True)]  # the last edit needs a later run to close its cycle
     m = parse(lines, cap=5)
-    assert m["test_fix_cycles"] == 7 and m["cap_exceeded"] and not m["compliance"]
+    assert m["test_fix_cycles"] == 8 and m["cap_exceeded"] and not m["compliance"]

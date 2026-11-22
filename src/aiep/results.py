@@ -105,7 +105,11 @@ def build_row(run_dir: Path, identity: Mapping[str, Any], handoff: Mapping[str, 
         "turns": t.get("turns_reported"), "tool_calls_total": int(t.get("tool_calls_total") or 0), "edits_total": int(t.get("edits_total") or 0),
         "test_runs": int(t.get("test_runs") or 0), "test_runs_failed": int(t.get("test_runs_failed") or 0), "test_fix_cycles": int(t.get("test_fix_cycles") or 0),
         "test_usage": bool(t.get("test_usage")), "compliance": bool(t.get("compliance")), "cap_exceeded": bool(t.get("cap_exceeded")),
-        "transcript_complete": t.get("complete"), "valid_measurement": bool(handoff_ok and graded)}
+        "transcript_complete": t.get("complete"), "valid_measurement": bool(handoff_ok and graded),
+        # transcript metrics version 2 (optional: rows written earlier lack them): what actually started, how edits were seen, and what could not be classified cleanly
+        "transcript_parser_version": t.get("parser_version"), "test_runs_started": t.get("test_runs_started"), "test_runs_not_started": t.get("test_runs_not_started"),
+        "bash_edit_like_calls": t.get("bash_edit_like_calls"), "test_fix_cycles_confirmed_edit": t.get("test_fix_cycles_confirmed_edit"),
+        "ambiguous_sequences": len(t.get("ambiguous_sequences") or []) if t else None}
     validate_row(row)
     return row
 

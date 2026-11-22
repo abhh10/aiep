@@ -135,3 +135,13 @@ Every scored row records BOTH costs as separate fields that never overwrite or s
 or invalid Claude estimate is stored as null, never as the gateway cost or zero; an unreadable gateway cost keeps its existing value `"0"` and is not filled from the Claude figure. The new fields are optional in
 `validate_row`, so rows written before them stay valid (results schema version unchanged). `aiep.analysis` reports them in separate fields (per-arm `claude_reported_cost_usd_total/mean/runs/missing_runs`, the paired
 Claude-reported difference over pairs where both runs have one, and a descriptive `gateway_vs_claude_reported` agreement check); the gateway figures, the cost ratio and the uncached-equivalent sensitivity are unchanged.
+
+## Transcript metrics version 2 (after calibration-2)
+Calibration-2 showed two parser defects: a here-document hid the commands after its delimiter (a `python -m pytest` after a Python heredoc edit was not seen), and an edit made by a Python script writing a file
+through Bash was not recognised. `aiep.transcript` (parser_version 2) now parses the whole shell command with here-document bodies set aside, classifies every test ATTEMPT from the tool output (`not_started` for a missing
+runner such as `No module named pytest`, `completed_failed`, `completed_passed`, `started_incomplete`, `unknown`; a non-zero exit alone proves nothing), and keeps CONFIRMED edit-tool calls apart from HEURISTIC Bash
+edit-like commands (Python file writes, `sed -i`, `perl -pi`, `cat >`, `tee`, redirects to source files, `git apply`/`patch`; recorded with their classification in `analysis_details`). A test-fix cycle needs a runner that started
+and completed with failures, then an edit, then a later runner that started; sequences that do not qualify cleanly are listed in `ambiguous_sequences` and never counted. Existing fields keep their names (`test_runs` still counts
+attempts; `test_runs_failed` now counts only completed failing runs; `test_fix_cycles` is the stricter count; `compliance` now needs a runner that actually started). New fields: `test_runs_started/completed/not_started/started_incomplete`,
+`test_usage_started`, `test_fix_cycles_confirmed_edit/bash_edit_only`, `unfinished_cycles`, `edit_tool_calls_errored`, `ambiguous_sequences`, `analysis_details`, `parser_version`; result rows carry six optional extras. The registered
+`test_command_spec` (hashed into the v2 definition) is unchanged. The m3-pilot-v2 definition's metric TEXT predates these refinements; a later definition (E1) should state them.
