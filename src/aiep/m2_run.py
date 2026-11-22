@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import re
 import secrets
 import sys
@@ -232,20 +233,34 @@ def summarize_ledger(ledger: bytes | None) -> dict[str, Any] | None:
 
 
 def cli_estimate(stdout: bytes) -> dict[str, Any] | None:
-    """Claude Code's own final ``result`` line, labelled as a client-side ESTIMATE (a killed run has none)."""
+    """Claude Code's own final ``result`` event, labelled as a client-side ESTIMATE (a killed run has none).
+
+    Every line is parsed as JSON and kept only if it is an object whose TOP-LEVEL ``type`` is ``"result"``; where that key sits in the line does not matter (in real 2.1.328
+    output it appears about 1,900 characters in, after ``duration_api_ms``, ``total_cost_usd``, ``usage`` and so on). Torn or non-JSON lines, other JSON values, other events
+    and events that merely mention "result" inside a string or a nested object are ignored, and a later bad line never discards an earlier good result. The cheap
+    ``b'"result"'`` pre-filter only skips JSON parsing for lines that cannot be a result event. ``total_cost_usd`` is kept only if it is a finite number.
+    """
     last = None
-    for line in stdout.decode("utf-8", "replace").splitlines():
-        if line.startswith('{"type":"result"') or '"type":"result"' in line[:40]:
-            try:
-                doc = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(doc, dict) and doc.get("type") == "result":
-                last = doc
+    for raw in stdout.splitlines():
+        if b'"result"' not in raw:
+            continue
+        try:
+            doc = json.loads(raw.decode("utf-8", "replace"))
+        except ValueError:
+            continue
+        if isinstance(doc, dict) and doc.get("type") == "result":
+            last = doc
     if last is None:
         return None
-    keep = ("subtype", "is_error", "num_turns", "duration_ms", "total_cost_usd")
-    return {"source": "Claude Code client-side estimate (NOT measured)", **{k: last.get(k) for k in keep if k in last}}
+    out: dict[str, Any] = {"source": "Claude Code client-side estimate (NOT measured)"}
+    for k in ("subtype", "is_error", "num_turns", "duration_ms", "total_cost_usd"):
+        if k not in last:
+            continue
+        v = last[k]
+        if k == "total_cost_usd" and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)):
+            continue  # a cost that is not a real number is never recorded
+        out[k] = v
+    return out
 
 
 def budget_attribution(gateway_stop_reason: str | None, estimate: dict[str, Any] | None) -> dict[str, Any]:
