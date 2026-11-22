@@ -1,0 +1,664 @@
+{
+  "analysis": {
+    "cost": "per arm: mean, median, total, cost per resolved task; paired differences; cache-read and uncached-equivalent cost as sensitivity; runs with inexact accounting flagged, never silently pooled",
+    "difference": "(B only - A only) / pairs: the paired difference in resolution rate; exact two-sided McNemar p-value on discordant pairs; seeded paired bootstrap interval - all DESCRIPTIVE for a pilot",
+    "invalid_handling": "counts of invalid, censored, interrupted, budget-limited and unexecuted slots are always reported next to the result",
+    "paired_report": "2x2 table: both resolved, neither, A only, B only (concordant and discordant pairs), per task",
+    "power_note": "a paired binary comparison needs roughly 190 tasks to detect a 10-point difference (25% discordant pairs) and roughly 85 for 15 points: an 8-task pilot cannot support an effectiveness claim",
+    "repetitions": "with more than one repetition the first repetition feeds the paired tests; per-task resolution fractions are reported",
+    "sets": {
+      "as_scheduled": "every task whose two scheduled runs both HAVE a result row; a run that is invalid, censored, rejected by the handoff, or ungradable counts as UNRESOLVED",
+      "valid_runs": "pairs where BOTH runs are valid, passed the handoff (ready or ready_flagged) and were graded without harness errors"
+    }
+  },
+  "arms": {
+    "A": "Basic workflow: investigate, fix, stop. Claude may run tests on its own.",
+    "B": "Test-and-fix workflow: run relevant existing tests, analyse failures, revise, repeat, at most 5 test-fix cycles."
+  },
+  "claim_scope": "FEASIBILITY PILOT: 8 tasks, one run per arm per task. It tests that the pipeline works and shows the cost range. It is NOT a statistically powered effectiveness study and supports no claim that one workflow is better than the other.",
+  "claude_cli": {
+    "platform": "linux-x64",
+    "sha256": "a982d38030b97e750848add2cbb2df6d9a70d5544a22ca9b216a349ba25865e8",
+    "version": "2.1.328"
+  },
+  "dataset": {
+    "repo_id": "SWE-bench/SWE-bench_Lite",
+    "revision": "b0dde1093fe417d83b7184254edf8199c1f0dff5",
+    "split": "test"
+  },
+  "definition_sha256": "590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161",
+  "design": {
+    "arms": [
+      "A",
+      "B"
+    ],
+    "order": "balanced first-arm assignment (rank tasks by sha256(seed|first-arm|id); even ranks A first, odd ranks B first) and seeded block order (sha256(seed|block|id)); both arms of a task run back to back inside one block, separated by pair_gap_s",
+    "pair_gap_note": "longer than the 5-minute prompt-cache lifetime, so the second arm of a pair does not start inside the first arm's cache window; cache-read tokens are recorded and analysed anyway (an uncached-equivalent cost is reported)",
+    "pair_gap_s": 600,
+    "repetitions": 1,
+    "schedule": [
+      {
+        "arm": "A",
+        "arm_position": 1,
+        "order_index": 1,
+        "pair_id": "m3-pilot-v2:sympy__sympy-18621:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/sympy__sympy-18621/A/r1",
+        "task_id": "sympy__sympy-18621"
+      },
+      {
+        "arm": "B",
+        "arm_position": 2,
+        "order_index": 2,
+        "pair_id": "m3-pilot-v2:sympy__sympy-18621:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/sympy__sympy-18621/B/r1",
+        "task_id": "sympy__sympy-18621"
+      },
+      {
+        "arm": "A",
+        "arm_position": 1,
+        "order_index": 3,
+        "pair_id": "m3-pilot-v2:matplotlib__matplotlib-26020:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/matplotlib__matplotlib-26020/A/r1",
+        "task_id": "matplotlib__matplotlib-26020"
+      },
+      {
+        "arm": "B",
+        "arm_position": 2,
+        "order_index": 4,
+        "pair_id": "m3-pilot-v2:matplotlib__matplotlib-26020:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/matplotlib__matplotlib-26020/B/r1",
+        "task_id": "matplotlib__matplotlib-26020"
+      },
+      {
+        "arm": "B",
+        "arm_position": 1,
+        "order_index": 5,
+        "pair_id": "m3-pilot-v2:django__django-13933:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/django__django-13933/B/r1",
+        "task_id": "django__django-13933"
+      },
+      {
+        "arm": "A",
+        "arm_position": 2,
+        "order_index": 6,
+        "pair_id": "m3-pilot-v2:django__django-13933:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/django__django-13933/A/r1",
+        "task_id": "django__django-13933"
+      },
+      {
+        "arm": "A",
+        "arm_position": 1,
+        "order_index": 7,
+        "pair_id": "m3-pilot-v2:django__django-15851:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/django__django-15851/A/r1",
+        "task_id": "django__django-15851"
+      },
+      {
+        "arm": "B",
+        "arm_position": 2,
+        "order_index": 8,
+        "pair_id": "m3-pilot-v2:django__django-15851:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/django__django-15851/B/r1",
+        "task_id": "django__django-15851"
+      },
+      {
+        "arm": "B",
+        "arm_position": 1,
+        "order_index": 9,
+        "pair_id": "m3-pilot-v2:sphinx-doc__sphinx-10325:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/sphinx-doc__sphinx-10325/B/r1",
+        "task_id": "sphinx-doc__sphinx-10325"
+      },
+      {
+        "arm": "A",
+        "arm_position": 2,
+        "order_index": 10,
+        "pair_id": "m3-pilot-v2:sphinx-doc__sphinx-10325:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/sphinx-doc__sphinx-10325/A/r1",
+        "task_id": "sphinx-doc__sphinx-10325"
+      },
+      {
+        "arm": "B",
+        "arm_position": 1,
+        "order_index": 11,
+        "pair_id": "m3-pilot-v2:psf__requests-863:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/psf__requests-863/B/r1",
+        "task_id": "psf__requests-863"
+      },
+      {
+        "arm": "A",
+        "arm_position": 2,
+        "order_index": 12,
+        "pair_id": "m3-pilot-v2:psf__requests-863:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/psf__requests-863/A/r1",
+        "task_id": "psf__requests-863"
+      },
+      {
+        "arm": "A",
+        "arm_position": 1,
+        "order_index": 13,
+        "pair_id": "m3-pilot-v2:scikit-learn__scikit-learn-12471:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/scikit-learn__scikit-learn-12471/A/r1",
+        "task_id": "scikit-learn__scikit-learn-12471"
+      },
+      {
+        "arm": "B",
+        "arm_position": 2,
+        "order_index": 14,
+        "pair_id": "m3-pilot-v2:scikit-learn__scikit-learn-12471:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/scikit-learn__scikit-learn-12471/B/r1",
+        "task_id": "scikit-learn__scikit-learn-12471"
+      },
+      {
+        "arm": "B",
+        "arm_position": 1,
+        "order_index": 15,
+        "pair_id": "m3-pilot-v2:sympy__sympy-22714:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/sympy__sympy-22714/B/r1",
+        "task_id": "sympy__sympy-22714"
+      },
+      {
+        "arm": "A",
+        "arm_position": 2,
+        "order_index": 16,
+        "pair_id": "m3-pilot-v2:sympy__sympy-22714:r1",
+        "rep": 1,
+        "slot_id": "m3-pilot-v2/sympy__sympy-22714/A/r1",
+        "task_id": "sympy__sympy-22714"
+      }
+    ]
+  },
+  "experiment_id": "m3-pilot-v2",
+  "financial_notice": "The gateway budget is a SOFT limit, not a guaranteed maximum liability. Usage is known only after a response is metered; an interrupted request is charged at an upper bound (input as reported plus max_tokens output, about $0.64 of output alone at max_tokens 64000) that can exceed the budget by itself; a request killed before it is metered may be billed and never recorded. The pilot allows one concurrent request per agent and stops on incomplete accounting.",
+  "kind": "feasibility_pilot",
+  "limits": {
+    "b_max_test_fix_cycles": 5,
+    "budget_usd_per_run": null,
+    "calibration_note": "budgets are fixed after an approved real-API calibration and the definition is then re-hashed and locked; until then nothing may spend",
+    "client_budget_margin": "1.10",
+    "disk": {
+      "hard_stop_gib": 12,
+      "start_gate_gib": 16
+    },
+    "gateway_max_concurrent": 1,
+    "max_total_computed_usd": null,
+    "same_for_both_arms": "one limits block: nothing here is keyed by arm",
+    "wall_clock_s": 1800
+  },
+  "metrics": {
+    "definitions": {
+      "cap_exceeded": "test_fix_cycles > 5",
+      "compliance_B": "test_runs >= 1 AND (no failed test run OR at least one test-fix cycle) AND test_fix_cycles <= 5",
+      "test_fix_cycle": "a FAILED test run followed, before the next test run, by at least one Edit or Write tool call",
+      "test_run": "a Bash tool call whose command, parsed as shell, RUNS a test runner according to test_command_spec (a runner word that is only an argument of another program does not count)",
+      "test_usage": "test_runs >= 1 (measured in BOTH arms; in A it is spontaneous)"
+    },
+    "primary": "issue resolved (harness verdict: all FAIL_TO_PASS pass and all PASS_TO_PASS maintained), per task and arm",
+    "secondary": [
+      "wall seconds",
+      "gateway-computed cost (and uncached-equivalent cost)",
+      "tokens by field",
+      "requests and request outcomes",
+      "turns",
+      "test runs",
+      "test-fix cycles",
+      "compliance"
+    ],
+    "test_command_spec": {
+      "exclusion_arguments": [
+        "--version",
+        "--help",
+        "-h",
+        "--collect-only",
+        "--co"
+      ],
+      "executables": [
+        "pytest",
+        "py.test",
+        "tox",
+        "nosetests",
+        "nose2",
+        "runtests.py",
+        "bin/test (sympy)",
+        "django-admin test",
+        "setup.py test|pytest",
+        "manage.py test"
+      ],
+      "make_targets": [
+        "test",
+        "tests",
+        "check"
+      ],
+      "method": "the Bash command is split into simple commands at && || ; | & newlines and parentheses (quotes respected; here-documents are set aside); for each simple command leading VAR=value assignments and the wrappers below are skipped and the EXECUTABLE (basename) and its first arguments decide. A runner word that is only an argument of another program (grep, echo, cat, pip, git ...) never counts. bash -c / sh -c strings are parsed the same way.",
+      "not_counted": [
+        "running a test file directly with python (python tests/test_x.py): this is how reproduction scripts look too",
+        "listing, reading or searching test files",
+        "installing a test runner",
+        "pytest --version / --help / --collect-only"
+      ],
+      "python_c_code_patterns": [
+        "\\bpytest\\.main\\(",
+        "\\bunittest\\.main\\(",
+        "\\.test\\("
+      ],
+      "python_modules": [
+        "pytest",
+        "py.test",
+        "unittest",
+        "django test",
+        "nose",
+        "nose2"
+      ],
+      "version": 2,
+      "wrappers": [
+        "env",
+        "sudo",
+        "time",
+        "nohup",
+        "timeout <N>",
+        "command",
+        "exec",
+        "xvfb-run",
+        "coverage run",
+        "conda|mamba|micromamba run",
+        "uv|poetry|pipenv|pdm|hatch run",
+        "bash|sh|zsh -c"
+      ]
+    }
+  },
+  "model": "claude-sonnet-5-5",
+  "preregistration": {
+    "control_requirements": {
+      "gold": "harness verdict resolved; every FAIL_TO_PASS passes; every PASS_TO_PASS is maintained; patch applied; 0 errors, 0 infrastructure failures",
+      "noop": "harness verdict unresolved; 0 of the FAIL_TO_PASS tests pass; patch applied; 0 errors, 0 infrastructure failures",
+      "noop_patch": "adds one new text file (AIEP_NOOP_CONTROL.txt): applies to any repository and changes no behaviour"
+    },
+    "replacement_rules": [
+      "a task is replaced ONLY if it fails its gold or no-op control (or its image cannot be pinned) BEFORE any agent run on it; a task is never replaced because of an agent outcome",
+      "the replacement is the first task in the replacement order that is unused and keeps at most 2 tasks per repository and at least 4 repositories",
+      "the replacement takes the failed task's block position AND its arm order (so the 4/4 balance of first arms is kept); it is recorded in the batch state, never by editing this file",
+      "if no replacement is allowed the batch stops for review (control_replacement_exhausted)"
+    ],
+    "replacements": [
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 6,
+          "issue_chars": 449,
+          "pass_to_pass": 1
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13043:latest",
+        "instance_id": "sympy__sympy-13043",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 6,
+          "issue_chars": 1509,
+          "pass_to_pass": 2
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-22005:latest",
+        "instance_id": "sympy__sympy-22005",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 466,
+          "pass_to_pass": 32
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-20212:latest",
+        "instance_id": "sympy__sympy-20212",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 2,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 3430,
+          "pass_to_pass": 19
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-17630:latest",
+        "instance_id": "sympy__sympy-17630",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 2,
+          "gold_patch_changed_lines": 9,
+          "issue_chars": 1100,
+          "pass_to_pass": 18
+        },
+        "image": "swebench/sweb.eval.x86_64.django_1776_django-16408:latest",
+        "instance_id": "django__django-16408",
+        "repo": "django/django"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 61,
+          "issue_chars": 626,
+          "pass_to_pass": 18
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-19254:latest",
+        "instance_id": "sympy__sympy-19254",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 2,
+          "gold_patch_changed_lines": 3,
+          "issue_chars": 1698,
+          "pass_to_pass": 6
+        },
+        "image": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-6506:latest",
+        "instance_id": "pylint-dev__pylint-6506",
+        "repo": "pylint-dev/pylint"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 69,
+          "issue_chars": 1248,
+          "pass_to_pass": 16
+        },
+        "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24265:latest",
+        "instance_id": "matplotlib__matplotlib-24265",
+        "repo": "matplotlib/matplotlib"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 11,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 8443,
+          "pass_to_pass": 0
+        },
+        "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7168:latest",
+        "instance_id": "pytest-dev__pytest-7168",
+        "repo": "pytest-dev/pytest"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 2,
+          "gold_patch_changed_lines": 54,
+          "issue_chars": 1327,
+          "pass_to_pass": 15
+        },
+        "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7686:latest",
+        "instance_id": "sphinx-doc__sphinx-7686",
+        "repo": "sphinx-doc/sphinx"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 7,
+          "issue_chars": 731,
+          "pass_to_pass": 24
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-20442:latest",
+        "instance_id": "sympy__sympy-20442",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 4,
+          "gold_patch_changed_lines": 67,
+          "issue_chars": 1717,
+          "pass_to_pass": 3
+        },
+        "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-18869:latest",
+        "instance_id": "matplotlib__matplotlib-18869",
+        "repo": "matplotlib/matplotlib"
+      }
+    ],
+    "seed": "aiep-m3-pilot-v1-preregistration",
+    "seed_note": "chosen by the implementer before any run, with no outcome information; every derived quantity is a SHA-256 of seed|purpose|key",
+    "selection": {
+      "algorithm": "screen -> rank pool by sha256(seed|select|instance_id) -> take in order unless the repository already has max_per_repo tasks",
+      "dataset_records": 300,
+      "exclude": [
+        "pytest-dev__pytest-5227"
+      ],
+      "max_per_repo": 2,
+      "min_repos": 4,
+      "n_tasks": 8,
+      "pool_sha256": "e13dc8c27052d4ab9bf018a4bda8ab247525a284885be0ea555180e409e106ee",
+      "pool_size": 138,
+      "screen": {
+        "max_pass_to_pass": 60,
+        "min_fail_to_pass": 1,
+        "pass_to_pass_ids": "every id must match its repository's id format (task_screening.is_well_formed); unverifiable ids exclude the task"
+      }
+    },
+    "tasks": [
+      {
+        "base_commit": "3ff4717b6aef6086e78f01cdfa06f64ae23aed7e",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 1660,
+          "pass_to_pass": 11
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-22714:latest",
+        "image_id": null,
+        "instance_id": "sympy__sympy-22714",
+        "pin_status": "unpulled",
+        "repo": "sympy/sympy"
+      },
+      {
+        "base_commit": "7bdc11e87c7d86dcc2a087eccb7a7c129a473415",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 12,
+          "issue_chars": 1132,
+          "pass_to_pass": 5
+        },
+        "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10325:latest",
+        "image_id": null,
+        "instance_id": "sphinx-doc__sphinx-10325",
+        "pin_status": "unpulled",
+        "repo": "sphinx-doc/sphinx"
+      },
+      {
+        "base_commit": "02dc9ed680e7f53f1b0d410dcdd37341c7958eb1",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 9,
+          "issue_chars": 2145,
+          "pass_to_pass": 53
+        },
+        "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-12471:latest",
+        "image_id": null,
+        "instance_id": "scikit-learn__scikit-learn-12471",
+        "pin_status": "unpulled",
+        "repo": "scikit-learn/scikit-learn"
+      },
+      {
+        "base_commit": "b4817d20b9e55df30be0b1b2ca8c8bb6d61aab07",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 632,
+          "pass_to_pass": 8
+        },
+        "image": "swebench/sweb.eval.x86_64.django_1776_django-15851:latest",
+        "image_id": null,
+        "instance_id": "django__django-15851",
+        "pin_status": "unpulled",
+        "repo": "django/django"
+      },
+      {
+        "base_commit": "b17ef6effe278d5b861d65896cc53442a6370d8f",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 2087,
+          "pass_to_pass": 15
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-18621:latest",
+        "image_id": null,
+        "instance_id": "sympy__sympy-18621",
+        "pin_status": "unpulled",
+        "repo": "sympy/sympy"
+      },
+      {
+        "base_commit": "a0df2cbb10419037d11d04352b3175405ab52941",
+        "covariates": {
+          "fail_to_pass": 4,
+          "gold_patch_changed_lines": 6,
+          "issue_chars": 805,
+          "pass_to_pass": 60
+        },
+        "image": "swebench/sweb.eval.x86_64.psf_1776_requests-863:latest",
+        "image_id": null,
+        "instance_id": "psf__requests-863",
+        "pin_status": "unpulled",
+        "repo": "psf/requests"
+      },
+      {
+        "base_commit": "f6a781f77f5ddf1204c60ca7c544809407d4a807",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 13,
+          "issue_chars": 19270,
+          "pass_to_pass": 48
+        },
+        "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-26020:latest",
+        "image_id": null,
+        "instance_id": "matplotlib__matplotlib-26020",
+        "pin_status": "unpulled",
+        "repo": "matplotlib/matplotlib"
+      },
+      {
+        "base_commit": "42e8cf47c7ee2db238bf91197ea398126c546741",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 6,
+          "issue_chars": 1207,
+          "pass_to_pass": 19
+        },
+        "image": "swebench/sweb.eval.x86_64.django_1776_django-13933:latest",
+        "image_id": null,
+        "instance_id": "django__django-13933",
+        "pin_status": "unpulled",
+        "repo": "django/django"
+      }
+    ]
+  },
+  "prompt_set": {
+    "change_note": "v2 changes ONLY Config B: it adds an explicit maximum of 5 test-fix cycles. The template and Config A are byte-identical to the original set (config/workflow_prompts.json), whose B prompt (f7ad0072...) is unchanged and retired from this experiment.",
+    "path": "config/workflow_prompts_v2.json",
+    "sha256": {
+      "A": "5e44cde50fea6d6c70cc65c0c97043a7c8fe9357d9468b4492305c0db4d64082",
+      "B": "cd6fbb95384237c2dcc399d61456ca92d746242384792f81c57217596aeb2d27",
+      "template": "86571bc70d453965dfec954dae6c2e3a073bf61ddbdc2656bc7f5667846d7158"
+    }
+  },
+  "research_question": "Does prescribing an iterative test-and-fix workflow improve Claude Code's software issue-resolution performance, and at what additional cost?",
+  "schema": 1,
+  "status": "draft",
+  "stop_conditions": [
+    {
+      "action": "halt",
+      "id": "accounting_incomplete",
+      "rule": "any run whose gateway ledger has a started request with no finishing line, an unreadable ledger, unparseable lines or a metering failure: halt the batch for review (usage may have been billed that is not recorded)"
+    },
+    {
+      "action": "halt",
+      "id": "financial_exposure_uncertain",
+      "rule": "a run whose usage is not exact because a request was cut off and charged at the max_tokens upper bound: halt at once (the cost is an upper-bound estimate and the soft budget may have been exceeded)"
+    },
+    {
+      "action": "halt",
+      "id": "handoff_integrity_failure",
+      "rule": "a run whose handoff is rejected for a deterministic setup or integrity reason (seed, base commit, image, prompts, binary, flags, identity, artifacts, any unclassified check): halt at once, because it would repeat on every run. Agent-behaviour rejections (timeout, non-zero exit, no or non-applying patch, truncated output) do not halt"
+    },
+    {
+      "action": "halt",
+      "id": "disk_hard_stop",
+      "rule": "free disk below 12 GiB at any check"
+    },
+    {
+      "action": "halt",
+      "id": "disk_start_gate",
+      "rule": "a block does not start below the 16 GiB start gate (the gate is never lowered for the experiment)"
+    },
+    {
+      "action": "halt",
+      "id": "grading_invalid",
+      "rule": "a grading run that is not valid (harness error, infrastructure failure, hard stop, incomplete report) halts the batch for diagnosis; it is never read as a model failure"
+    },
+    {
+      "action": "halt",
+      "id": "task_not_prepared",
+      "rule": "a block cannot start until its image, seed and identity are pinned and the controls ran (each needs its own approval)"
+    },
+    {
+      "action": "halt",
+      "id": "cumulative_cost_cap",
+      "rule": "cumulative gateway-computed cost plus the estimated exposure of the next run would exceed max_total_computed_usd"
+    },
+    {
+      "action": "halt",
+      "id": "hidden_data_leak",
+      "rule": "the handoff scan finds hidden test ids or patch lines in an agent's input"
+    },
+    {
+      "action": "halt",
+      "id": "control_replacement_exhausted",
+      "rule": "a task failed its controls and no pre-registered replacement is allowed"
+    },
+    {
+      "action": "halt",
+      "id": "consecutive_invalid_runs",
+      "n": 2,
+      "rule": "the policy for TRANSIENT infrastructure failures: 2 consecutive runs rejected for infrastructure reasons (proxy died, gateway died or unreachable, lease lost, lifecycle failure, attachment failure) halt the batch; any other run resets the count"
+    },
+    {
+      "action": "halt",
+      "id": "orchestrator_error",
+      "rule": "any unexpected exception in the batch: halt; resume only after review"
+    }
+  ],
+  "supersedes": {
+    "changes": [
+      "stop_conditions: adds handoff_integrity_failure (halt at once on a deterministic setup/integrity rejection) and financial_exposure_uncertain (halt at once when a request was charged at the max_tokens upper bound); accounting_incomplete now also covers a metering failure; consecutive_invalid_runs (n=2) is restated as the policy for TRANSIENT infrastructure failures only",
+      "metrics.test_command_patterns (regular expressions) is replaced by metrics.test_command_spec (structured shell-command parsing, implemented in aiep.transcript)",
+      "metrics.definitions.test_run is reworded to match",
+      "experiment_id is m3-pilot-v2, so every slot_id and pair_id carries the new id",
+      "this supersedes block"
+    ],
+    "definition_sha256": "f2ae65e5b2a2d8d721071093c9b411409bc19323fe1563efe0112e24dbd22f02",
+    "experiment_id": "m3-pilot-v1",
+    "file": "config/experiments/m3-pilot-v1.json (preserved unchanged, never run)",
+    "reason": "The M3.7 operational-readiness audit found two defects in v1 that a run would have exposed too late: (1) the batch could not tell a deterministic setup or handoff integrity failure from agent behaviour and would have paid for all 16 runs; (2) the test-command patterns of v1 misclassified commands (missed /opt/miniconda3/envs/testbed/bin/pytest, ./tests/runtests.py and python setup.py test; counted grep/echo/pip commands that merely mention pytest), which biases the secondary 'test usage' and 'compliance' metrics. Both live inside the hashed definition, so it is superseded by a new id before any run instead of being edited.",
+    "unchanged": [
+      "the 8 tasks and their order",
+      "the 12 ordered replacements",
+      "the pre-registration seed",
+      "the arm assignment, block order and slot order (order_index, arm, arm_position)",
+      "prompt set v2 and its hashes",
+      "model, Claude binary, dataset revision",
+      "limits (budgets still null), pair gap, disk gates",
+      "analysis plan",
+      "financial notice"
+    ]
+  }
+}
