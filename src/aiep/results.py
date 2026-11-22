@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping
@@ -22,6 +23,15 @@ INT_FIELDS = ("repetition", "order_index", "arm_position", "requests", "non_succ
 BOOL_FIELDS = ("valid", "graded", "valid_measurement", "cost_exact", "accounting_complete", "test_usage", "compliance", "cap_exceeded")
 STR_FIELDS = ("experiment_id", "slot_id", "task_id", "repo", "arm", "pair_id", "run_id", "handoff_status", "cost_usd_computed", "uncached_equivalent_usd")
 REQUIRED = ("schema", *STR_FIELDS, *INT_FIELDS, *BOOL_FIELDS, "resolved", "invalid_reason", "stop_reason", "handoff_rejections", "handoff_flags", "tokens", "request_categories")
+
+
+_CALIBRATION_ID = re.compile(r"^m3-calibration-[1-9][0-9]*$")
+
+
+def reject_calibration(run_or_row: Mapping[str, Any]) -> None:
+    """A calibration run (or a row claiming a calibration experiment) is never a scored observation, whatever else it contains."""
+    if run_or_row.get("calibration") is not None or (isinstance(run_or_row.get("experiment_id"), str) and _CALIBRATION_ID.fullmatch(run_or_row["experiment_id"])):
+        raise ResultsError("a calibration run is never a scored observation: it cannot become a result row")
 
 
 class ResultsError(ValueError):
@@ -39,6 +49,8 @@ def uncached_equivalent_usd(tokens: Mapping[str, int], pricing: Any) -> str:
 def build_row(run_dir: Path, identity: Mapping[str, Any], handoff: Mapping[str, Any], grading: Mapping[str, Any] | None, transcript: Mapping[str, Any] | None,
               *, definition_sha256: str, pricing: Any, repo: str) -> dict[str, Any]:
     run = json.loads((Path(run_dir) / "run.json").read_text())
+    reject_calibration(run)
+    reject_calibration(identity)
     agent = ((run.get("lifecycle") or {}).get("agent")) or {}
     um, acc = run.get("usage_measured") or {}, run.get("accounting") or {}
     rs = (um.get("request_status") or {})
@@ -100,6 +112,7 @@ def validate_row(row: Mapping[str, Any]) -> None:
         raise ResultsError("a run that was not graded cannot have a resolved value")
     if row["valid_measurement"] and not (row["graded"] and row["handoff_status"] in ("ready", "ready_flagged")):
         raise ResultsError("valid_measurement requires a passed handoff and a completed grading")
+    reject_calibration(row)
     if row["arm"] not in ("A", "B") or row["slot_id"] != f"{row['experiment_id']}/{row['task_id']}/{row['arm']}/r{row['repetition']}":
         raise ResultsError("slot_id does not match experiment, task, arm and repetition")
     for k in ("cost_usd_computed", "uncached_equivalent_usd"):

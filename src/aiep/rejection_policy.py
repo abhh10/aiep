@@ -71,6 +71,7 @@ RULES: dict[str, str] = {
     "the run carries a complete experiment identity": INTEGRITY,
     "the run's slot is a scheduled slot": INTEGRITY,
     "the three AIEP networks were verified": INTEGRITY,
+    "the run is not a calibration run": INTEGRITY,
     "the gateway did not stop the run for a violation": INTEGRITY,
 }
 EXACTNESS_FLAG = "the usage figures are EXACT"

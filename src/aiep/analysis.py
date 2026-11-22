@@ -93,6 +93,12 @@ def _pair_table(pairs: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]], s
 def analyze(rows: Iterable[Mapping[str, Any]], definition: Mapping[str, Any], *, tasks: Sequence[str] | None = None, repetition: int = 1) -> dict[str, Any]:
     """``tasks`` is the FINAL task list (selected tasks with any recorded replacements); default: the definition's. The first repetition feeds the paired tests."""
     rows = list(rows)
+    from .results import ResultsError, reject_calibration
+    for r in rows:
+        try:
+            reject_calibration(r)
+        except ResultsError as e:
+            raise ValueError("the results contain a calibration row: " + str(e)) from e
     seed = definition["preregistration"]["seed"]
     tasks = list(tasks or [t["instance_id"] for t in definition["preregistration"]["tasks"]])
     by_slot: dict[tuple[str, str], Mapping[str, Any]] = {}

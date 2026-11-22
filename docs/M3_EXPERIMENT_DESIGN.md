@@ -110,3 +110,21 @@ harness: `ImageCollection.pull/build/load` and the low-level `pull`, `build`, `l
 `swebench.harness.run_evaluation` directly is not a supported path and is not guarded; (2) the gated hardened `aiep.evaluator` (attestation required, blocked today, never run) has its OWN refusals of
 `ImageCollection.pull/build/load/push` only: it does not cover the low-level API and refuses with an ordinary exception that the harness's `except Exception` would convert, so it should adopt this
 guard before it is ever used; (3) `images.tag`, `remove_image` and `commit` are not blocked (the harness does not use them).
+
+## Calibration run `m3-calibration-1` (prepared; NOT yet executed)
+Purpose: measure real cost, duration, request count and token usage (input, output, cache read, cache write) for one agent run, to set the pilot's `budget_usd_per_run` and `max_total_computed_usd`. It is NOT an A/B
+observation. Planned configuration: task `sympy__sympy-18621`, Config A, gateway budget $2.00 (Claude Code's `--max-budget-usd` becomes the client estimate $2.2), concurrency 1, wall clock 1,200 s,
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS` 64,000 (the pilot's own setting, so the measurement matches the pilot).
+
+**The limits are not hard spending limits.** The gateway budget is SOFT: usage is known only after a response, so a run can end above the budget by the cost of the request in flight (output at most $0.64 at
+the 64,000 cap, plus input, which the gateway does not bound), and an interrupted stream is charged at an upper bound. Claude Code's `--max-budget-usd` is a client-side ESTIMATE. Only a spend limit on the dedicated
+API key itself is a hard cap, and it is set outside this repository. Gateway measured cost, the client estimate, exact versus upper-bound usage, unrecorded requests (a `forwarding` ledger line with no finishing
+line) and interrupted streams stay separate in `run.json` and the ledger; nothing here changed how they are computed.
+
+Code: `scripts/run_m2_agent.py --max-concurrent N` (1 to 4, DEFAULT 1, validated before any Docker, key or API activity, always passed explicitly to the gateway; `m2_run.prepare`'s own default of 2 is unchanged for other callers)
+and `--calibration m3-calibration-N`. A calibration run records `calibration: {id, purpose, scored: false, not_an_ab_observation: true}` in `run.json`, has NO experiment identity (it cannot be a slot of any definition),
+is written under `runs/calibration/`, and is refused by `results.build_row`, `results.validate_row` / `ResultsWriter.append`, `analysis.analyze`, and (as a rejection) by the handoff when a schedule is supplied; plain handoff
+validation only flags it.
+
+Bug found and fixed while doing this: `m2_run.prepare` reused the name `experiment` for the model config it loads, so `run.json["experiment"]` held the model config instead of the scheduled slot's identity (and for ordinary
+runs, a non-null dict). It is now the identity or `null`; a regression test covers the round trip.

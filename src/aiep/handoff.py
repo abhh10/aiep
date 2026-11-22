@@ -252,6 +252,13 @@ def validate_handoff(run_dir: Path, *, root: Path = REPO_ROOT, providers: Provid
     rep.check("the Claude flags are exactly the experiment's flags for this model and budget (identical for A and B)", want_args is not None and run.get("claude_args") == want_args, run.get("claude_args"))
     gw = json.loads((root / "config" / "gateway_image.json").read_text())
     rep.check("the gateway image is the pinned one", (run.get("gateway_image") or {}).get("image_id") == gw.get("image_id"))
+    if run.get("calibration") is not None:  # a calibration run is evaluable for its own purposes, but it is never a scheduled observation
+        cal = run["calibration"]
+        if expected_slots is not None:
+            rep.check("the run is not a calibration run (calibration runs are never scheduled observations)", False, cal.get("id") if isinstance(cal, dict) else str(cal)[:40])
+        else:
+            rep.check("this is a calibration run, not a scored observation (it must never enter the M3 results)", False, cal.get("id") if isinstance(cal, dict) else str(cal)[:40],
+                      severity="flag")
     exp = run.get("experiment")
     if exp is not None or expected_slots is not None:
         keys = ("experiment_id", "task_id", "arm", "repetition", "pair_id", "order_index", "slot_id")

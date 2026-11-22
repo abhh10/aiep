@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 import secrets
 import sys
 import tempfile
@@ -75,12 +76,14 @@ class Prepared:
     prompts_file: str = "config/workflow_prompts.json"  # which registered prompt set this run used (recorded; the handoff validates against it)
     max_concurrent: int = 2
     subnets: dict[str, str] = field(default_factory=dict)  # internal network name -> subnet, read from Docker by execute()
+    calibration: str | None = None  # a calibration run's id (``CALIBRATION_ID``): recorded in run.json; such a run is never a scored observation
 
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+CALIBRATION_ID = re.compile(r"^m3-calibration-[1-9][0-9]{0,3}$")  # separate namespace from every experiment definition id (m3-pilot-v*)
 EXPERIMENT_KEYS = ("experiment_id", "task_id", "arm", "repetition", "pair_id", "order_index", "slot_id")
 
 
@@ -107,9 +110,18 @@ def load_seed_pin(root: Path, instance_id: str) -> dict[str, Any]:
 def prepare(root: Path, *, instance_id: str, label: str, budget_usd: str, wall_clock_s: float, claude_binary: Path,
             real_key: str, agent_network: str = AGENT_NETWORK, proxy_network: str = PROXY_NETWORK, egress_network: str = EGRESS_NETWORK,
             stamp: str | None = None, hf_home: Path | None = None, prompts_file: str = "config/workflow_prompts.json",
-            experiment: Mapping[str, Any] | None = None, max_concurrent: int = 2) -> Prepared:
-    """Everything that needs no Docker. Raises ``PrepareError`` (or a pin/policy error) on the first problem."""
+            experiment: Mapping[str, Any] | None = None, max_concurrent: int = 2, calibration: str | None = None) -> Prepared:
+    """Everything that needs no Docker. Raises ``PrepareError`` (or a pin/policy error) on the first problem.
+
+    ``calibration`` marks the run as a CALIBRATION (``m3-calibration-N``): recorded in run.json, never an A/B observation, so it cannot carry an experiment identity."""
     root = Path(root)
+    if type(max_concurrent) is not int or not 1 <= max_concurrent <= 4:
+        raise PrepareError("max_concurrent must be an integer from 1 to 4 (the gateway's own range)")
+    if calibration is not None:
+        if not (isinstance(calibration, str) and CALIBRATION_ID.fullmatch(calibration)):
+            raise PrepareError("a calibration id must look like m3-calibration-1")
+        if experiment is not None:
+            raise PrepareError("a calibration run has no experiment identity: it can never be a scheduled, scored slot")
     if label not in CONFIG_LABELS:
         raise PrepareError(f"config must be one of {list(CONFIG_LABELS)}")
     if (agent_network, proxy_network, egress_network) != (AGENT_NETWORK, PROXY_NETWORK, EGRESS_NETWORK):  # the single definition is aiep.networks
@@ -124,8 +136,7 @@ def prepare(root: Path, *, instance_id: str, label: str, budget_usd: str, wall_c
     prompts = load_prompts(root / prompts_file)  # refuses a file whose text no longer matches its recorded hashes
     cli = load_claude_cli(root / "config" / "claude_cli.json")  # ClaudeCliUnpinned until Gate 1
     gpin = load_gateway_image(root / "config" / "gateway_image.json")  # GatewayImageUnpinned until the image is pinned
-    experiment = json.loads((root / "config" / "experiment.json").read_text())
-    model = experiment["model"]
+    model = json.loads((root / "config" / "experiment.json").read_text())["model"]  # NOT named ``experiment``: that is the scheduled slot's identity argument, recorded in run.json
 
     seed_pin = load_seed_pin(root, instance_id)
     images = json.loads((root / "config" / "evaluator_images.json").read_text())["images"]
@@ -177,7 +188,7 @@ def prepare(root: Path, *, instance_id: str, label: str, budget_usd: str, wall_c
     build_proxy_create_kwargs(pspec, preflight=True)
     return Prepared(run_id, instance_id, label, budget_usd, float(wall_clock_s), task, text, prompts, seed, cli, gpin, aspec,
                     gspec, (real_key, run_token), expected_image, model, pspec=pspec,
-                    experiment=dict(experiment) if experiment else None, prompts_file=prompts_file, max_concurrent=max_concurrent)
+                    experiment=dict(experiment) if experiment else None, prompts_file=prompts_file, max_concurrent=max_concurrent, calibration=calibration)
 
 
 # ------------------------------------------------------------------ what a run recorded
@@ -406,6 +417,11 @@ def _persist(p: Prepared, base: Path, root: Path, result: LifecycleResult | None
             "first_heartbeat_error": lease.errors[0] if lease.errors else None},
         "evaluation": "not run: a separate, approved step (the M1 evaluator) consumes predictions.jsonl",
     }
+    if p.calibration is not None:  # only calibration runs carry the key, so ordinary run.json files are unchanged
+        meta["calibration"] = {"id": p.calibration, "purpose": "calibration", "scored": False, "not_an_ab_observation": True,
+                               "note": "A calibration run measures cost, duration and token usage to set the pilot's budgets. It is not an A or B observation, has no experiment identity, "
+                                       "and is refused by the results builder, the results writer, the analysis and the scheduled-slot handoff. The gateway budget is a SOFT limit and "
+                                       "Claude Code's --max-budget-usd is a client-side ESTIMATE: neither is a hard spending cap."}
     art = artifacts.write_run_artifacts(base, p.run_id, files, meta, p.secrets)
     problems = artifacts.verify_run_artifacts(art.directory)
     if result is not None and result.accounting is not None and not result.accounting.get("complete"):
