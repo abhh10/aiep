@@ -17,6 +17,8 @@ and an interrupted request is charged at an upper bound), and Claude Code's --ma
 on the dedicated API key itself is.
 
     --max-concurrent N   requests in flight upstream, 1 to 4, DEFAULT 1 (the experiment's setting; it also bounds the budget overshoot). It is always passed explicitly.
+    --prompts-file PATH  the registered prompt set to use (aiep.experiment.REGISTERED_PROMPT_SETS: config/workflow_prompts.json [DEFAULT, v1] or config/workflow_prompts_v2.json,
+                         whose Config B adds the five-cycle cap); any other path is refused. Plan and execution use the same selection; run.json records the file and its sha256.
     --calibration ID     mark the run as a calibration (ID like m3-calibration-1): recorded in run.json, written under runs/calibration/, never a scored A/B observation.
 
 Exit codes: 0 ok; 1 failed (a local check, the run, or artifact verification); 2 refused (disk gate, missing approval, open blocker, invalid option).
@@ -36,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from aiep import m2_run, networks  # noqa: E402
-from aiep.experiment import (ClaudeCliUnpinned, PromptError, build_task_text, claude_args, client_budget_usd, load_claude_cli,  # noqa: E402
+from aiep.experiment import (REGISTERED_PROMPT_SETS, ClaudeCliUnpinned, PromptError, build_task_text, claude_args, client_budget_usd, load_claude_cli,  # noqa: E402
                              load_prompts, prompt_record)
 from aiep.gateway import parse_max_concurrent  # noqa: E402
 from aiep.gateway_runner import GatewayImageUnpinned, load_gateway_image  # noqa: E402
@@ -53,11 +55,14 @@ def _default_client() -> Any:
     return docker.from_env(timeout=120)
 
 
-def blockers(root: Path, *, claude_binary: Path | None, key_present: bool, execute_approved: bool) -> list[str]:
+DEFAULT_PROMPTS_FILE = "config/workflow_prompts.json"
+
+
+def blockers(root: Path, *, claude_binary: Path | None, key_present: bool, execute_approved: bool, prompts_file: str = DEFAULT_PROMPTS_FILE) -> list[str]:
     """Open preconditions, found without Docker or network. Empty means nothing local stands in the way."""
     out: list[str] = []
     try:
-        load_prompts(root / "config" / "workflow_prompts.json")
+        load_prompts(root / prompts_file)
     except PromptError as e:
         out.append(f"prompts: {e}")
     try:
@@ -90,6 +95,7 @@ def main(argv: list[str] | None = None, *, client_factory: Callable[[], Any] = _
     p.add_argument("--proxy-network", default=networks.PROXY_NETWORK)
     p.add_argument("--egress-network", default=networks.EGRESS_NETWORK)
     p.add_argument("--max-concurrent", default="1", help="requests in flight upstream, 1 to 4 (default 1: it also bounds the budget overshoot)")
+    p.add_argument("--prompts-file", default=DEFAULT_PROMPTS_FILE, help="a registered prompt set (default: the v1 file); any other path is refused")
     p.add_argument("--calibration", default=None, help="mark this run as a calibration, e.g. m3-calibration-1 (never a scored A/B observation)")
     p.add_argument("--execute", action="store_true")
     p.add_argument("--approve-spend", help="must equal --budget-usd exactly to allow a paid run")
@@ -112,6 +118,9 @@ def main(argv: list[str] | None = None, *, client_factory: Callable[[], Any] = _
     except ValueError:
         print(f"REFUSED: --max-concurrent {args.max_concurrent!r} is not an integer from 1 to 4", file=sys.stderr)
         return 2
+    if args.prompts_file not in REGISTERED_PROMPT_SETS:
+        print(f"REFUSED: --prompts-file {args.prompts_file!r} is not a registered prompt set {list(REGISTERED_PROMPT_SETS)}", file=sys.stderr)
+        return 2
     if args.calibration is not None and not m2_run.CALIBRATION_ID.fullmatch(args.calibration):
         print(f"REFUSED: --calibration {args.calibration!r} is not a calibration id like m3-calibration-1", file=sys.stderr)
         return 2
@@ -123,7 +132,7 @@ def main(argv: list[str] | None = None, *, client_factory: Callable[[], Any] = _
     if not approved:
         print("REFUSED: a paid run needs --execute and --approve-spend equal to --budget-usd. Nothing was started.", file=sys.stderr)
         return 2
-    open_items = blockers(root, claude_binary=args.claude_binary, key_present=bool(key), execute_approved=approved)
+    open_items = blockers(root, claude_binary=args.claude_binary, key_present=bool(key), execute_approved=approved, prompts_file=args.prompts_file)
     if open_items:
         print("REFUSED: open blockers (nothing was started):", file=sys.stderr)
         for b in open_items:
@@ -139,7 +148,7 @@ def main(argv: list[str] | None = None, *, client_factory: Callable[[], Any] = _
         prepared = m2_run.prepare(root, instance_id=args.instance, label=args.config, budget_usd=args.budget_usd,
                                   wall_clock_s=args.wall_clock_s, claude_binary=args.claude_binary, real_key=key,
                                   agent_network=args.agent_network, proxy_network=args.proxy_network, egress_network=args.egress_network,
-                                  max_concurrent=args.max_concurrent, calibration=args.calibration)
+                                  max_concurrent=args.max_concurrent, calibration=args.calibration, prompts_file=args.prompts_file)
     except Exception as e:  # any local failure: nothing was sent to Docker
         print(f"ERROR before Docker: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
@@ -164,11 +173,12 @@ def main(argv: list[str] | None = None, *, client_factory: Callable[[], Any] = _
 
 
 def _plan(root: Path, args: argparse.Namespace, key_present: bool) -> int:
-    prompts = load_prompts(root / "config" / "workflow_prompts.json")
+    prompts = load_prompts(root / args.prompts_file)
     sample = TaskInput(args.instance, "owner/repo", "0" * 40, "<the issue text goes here>")
     text = build_task_text(args.config, sample, prompts)
     print(f"PLAN (nothing is started; no Docker, no network): instance {args.instance}, config {args.config}")
     rec = prompt_record(args.config, text, prompts)
+    print(f"prompt set: {args.prompts_file}")
     print("registered prompt hashes:", json.dumps({k: rec[k] for k in ("label", "template_sha256", "workflow_sha256")}, sort_keys=True))
     print("(the hash of the final prompt is computed per run, once the real issue text is inserted)")
     print("claude args:  ", " ".join(claude_args("claude-sonnet-5-5", args.budget_usd)))
@@ -178,7 +188,7 @@ def _plan(root: Path, args: argparse.Namespace, key_present: bool) -> int:
           "is an ESTIMATE: not a hard spending limit. Only a spend limit on the dedicated API key is one.")
     if args.calibration:
         print(f"CALIBRATION {args.calibration}: recorded in run.json, written under runs/calibration/, never a scored A/B observation.")
-    open_items = blockers(root, claude_binary=args.claude_binary, key_present=key_present, execute_approved=False)
+    open_items = blockers(root, claude_binary=args.claude_binary, key_present=key_present, execute_approved=False, prompts_file=args.prompts_file)
     print("open blockers before a real run:" if open_items else "no open local blockers")
     for b in open_items:
         print(f"  - {b}")

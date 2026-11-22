@@ -103,6 +103,7 @@ def prompt_record(label: str, text: str, prompts: Prompts | None = None) -> dict
 # Tools are the SAME for both configurations. WebSearch/WebFetch are never offered (the gateway refuses server-side
 # tools and stops the run), and there are no MCP servers.
 CLAUDE_TOOLS = "Bash,Read,Edit,Write,Glob,Grep"
+REGISTERED_PROMPT_SETS = ("config/workflow_prompts.json", "config/workflow_prompts_v2.json")  # the only prompt files a run may select (v1: retired from M3; v2: the M3 set)
 MAX_BUDGET_USD = Decimal("100")  # a plain sanity ceiling; the real limit is the dedicated key and the gateway budget
 
 

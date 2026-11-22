@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import artifacts
-from .experiment import claude_args, load_prompts
+from .experiment import REGISTERED_PROMPT_SETS, claude_args, load_prompts
 from .patch import validate_patch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -128,7 +128,7 @@ def evaluator_support(root: Path, instance: Any) -> tuple[bool, str]:
     return False, f"not registered (missing: {', '.join(st['missing'])})"
 
 
-ALLOWED_PROMPT_SETS = ("config/workflow_prompts.json", "config/workflow_prompts_v2.json")
+ALLOWED_PROMPT_SETS = REGISTERED_PROMPT_SETS
 
 
 def validate_handoff(run_dir: Path, *, root: Path = REPO_ROOT, providers: Providers | None = None, hidden_scan: bool = True,

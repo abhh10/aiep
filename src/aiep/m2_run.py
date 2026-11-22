@@ -31,7 +31,7 @@ from .agent_env import IdentityUnverified
 from .task_pins import PinError, load_identity
 from .agent_runner import (MAX_COMPONENT_FILE_BYTES, AgentResult, AgentRunSpec, build_create_kwargs, record_of, run_agent)
 from .container_policy import AGENT_MEM, AGENT_NANO_CPUS, AGENT_PIDS, AGENT_SHM_DEFAULT
-from .experiment import (CONFIG_LABELS, ClaudeCliPin, Prompts, build_task_text, claude_args, client_budget_usd, load_claude_cli,
+from .experiment import (CONFIG_LABELS, REGISTERED_PROMPT_SETS, ClaudeCliPin, Prompts, build_task_text, claude_args, client_budget_usd, load_claude_cli,
                          load_prompts, prompt_record)
 from .lease import RunLease
 from .networks import AGENT_NETWORK, EGRESS_NETWORK, PROXY_NETWORK, verify_run_networks
@@ -77,6 +77,7 @@ class Prepared:
     prompts_file: str = "config/workflow_prompts.json"  # which registered prompt set this run used (recorded; the handoff validates against it)
     max_concurrent: int = 2
     subnets: dict[str, str] = field(default_factory=dict)  # internal network name -> subnet, read from Docker by execute()
+    prompts_file_sha256: str = ""  # sha256 of the registered prompt file's bytes (the file ``load_prompts`` verified against its own recorded hashes)
     calibration: str | None = None  # a calibration run's id (``CALIBRATION_ID``): recorded in run.json; such a run is never a scored observation
 
 
@@ -134,7 +135,10 @@ def prepare(root: Path, *, instance_id: str, label: str, budget_usd: str, wall_c
         raise PrepareError(f"wall_clock_s must be between {MIN_WALL_CLOCK_S:.0f} and {MAX_WALL_CLOCK_S:.0f}")
     if experiment is not None:
         _check_experiment_identity(experiment, instance_id, label)
+    if prompts_file not in REGISTERED_PROMPT_SETS:
+        raise PrepareError(f"prompts_file must be one of the registered prompt sets {list(REGISTERED_PROMPT_SETS)}")
     prompts = load_prompts(root / prompts_file)  # refuses a file whose text no longer matches its recorded hashes
+    prompts_file_sha256 = hashlib.sha256((root / prompts_file).read_bytes()).hexdigest()
     cli = load_claude_cli(root / "config" / "claude_cli.json")  # ClaudeCliUnpinned until Gate 1
     gpin = load_gateway_image(root / "config" / "gateway_image.json")  # GatewayImageUnpinned until the image is pinned
     model = json.loads((root / "config" / "experiment.json").read_text())["model"]  # NOT named ``experiment``: that is the scheduled slot's identity argument, recorded in run.json
@@ -189,7 +193,8 @@ def prepare(root: Path, *, instance_id: str, label: str, budget_usd: str, wall_c
     build_proxy_create_kwargs(pspec, preflight=True)
     return Prepared(run_id, instance_id, label, budget_usd, float(wall_clock_s), task, text, prompts, seed, cli, gpin, aspec,
                     gspec, (real_key, run_token), expected_image, model, pspec=pspec,
-                    experiment=dict(experiment) if experiment else None, prompts_file=prompts_file, max_concurrent=max_concurrent, calibration=calibration)
+                    experiment=dict(experiment) if experiment else None, prompts_file=prompts_file, max_concurrent=max_concurrent, calibration=calibration,
+                    prompts_file_sha256=prompts_file_sha256)
 
 
 # ------------------------------------------------------------------ what a run recorded
@@ -410,7 +415,7 @@ def _persist(p: Prepared, base: Path, root: Path, result: LifecycleResult | None
         "task": {"instance_id": p.instance_id, "repo": p.task.repo, "base_commit": p.task.base_commit},
         "seed": {"sha256": p.seed.manifest.archive_sha256, "head": p.seed.manifest.head, "entries": len(p.seed.manifest.entries)},
         "image_id": p.image_id, "model": p.model, "config": p.label,
-        "experiment": p.experiment, "prompt_set_file": p.prompts_file,
+        "experiment": p.experiment, "prompt_set_file": p.prompts_file, "prompt_set_file_sha256": p.prompts_file_sha256,
         "claude_cli": {"version": p.cli.version, "platform": p.cli.platform, "sha256": p.cli.sha256, "size_bytes": p.cli.size_bytes},
         "claude_args": list(p.aspec.claude_args), "gateway_image": {"image": p.gateway_pin.image, "image_id": p.gateway_pin.image_id},
         "prompt": prompt_record(p.label, p.task_text, p.prompts), "limits": _limits(p),
