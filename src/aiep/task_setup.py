@@ -24,10 +24,12 @@ from .image_digests import load_digest_record, local_image, reference
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 MIN_FREE_BYTES = 16 * 1024**3
-# Raw tar limit for extracting a task's /testbed. 128 MiB is validated for sympy__sympy-18621 ONLY: its /testbed streams as 104,282,112 B (99.45 MiB, of which .git is 67.3 MiB),
-# measured 2026-11-22 with a bounded read-only probe. It is NOT a universal SWE-bench limit: other tasks (matplotlib, scikit-learn ...) are unmeasured and may need more, and the agent's
-# /testbed tmpfs (192 MiB, agent_runner.py) must hold the seed plus the agent's own writes. The seed parser's own limits are separate: total content 256 MiB, ONE seed file 96 MiB (seed.MAX_SEED_FILE_BYTES, raised from 64 MiB for sympy__sympy-22714's 64.792 MiB Git pack) and 200,000 entries. The trusted-component ceilings are distinct constants.
-MAX_ARCHIVE_BYTES = 128 * 1024**2
+# Raw tar limit for extracting a task's /testbed: 160 MiB. MEASURED (read-only probes of each pulled image) for the four E1 Stage 1 tasks: sympy__sympy-18621 99.45 MiB, sympy__sympy-22714 112.77 MiB,
+# django__django-13933 133.78 MiB and django__django-15851 142.56 MiB (the largest; 142.56 MiB + 12% margin = 160 MiB). It was 128 MiB, validated for SymPy only, and both Django tasks exceeded it. It is NOT a
+# universal SWE-bench limit: tasks that have not been measured may need more (a task over the cap fails its preparation gate, ``seed_archive_over_limit``, and may be replaced under the pre-registered rule).
+# The agent's /testbed tmpfs (agent_runner.py, 256 MiB) must hold the seed's page-rounded footprint (up to 160.39 MiB measured) plus the agent's own writes: 160 MiB x 1.13 + 64 MiB working space <= 256 MiB.
+# The seed parser's own limits are separate: total content 256 MiB, ONE seed file 96 MiB (seed.MAX_SEED_FILE_BYTES) and 200,000 entries. The trusted-component ceilings are distinct constants.
+MAX_ARCHIVE_BYTES = 160 * 1024**2
 
 
 class SetupRefused(RuntimeError):

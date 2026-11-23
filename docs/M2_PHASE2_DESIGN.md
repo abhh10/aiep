@@ -230,7 +230,7 @@ stdin into tmpfs mounts.
 | Mount | Type | Purpose | exec | Size (placeholder, `AgentRunSpec`) |
 |---|---|---|---|---|
 | `/` | read-only image root | the pinned instance image | n/a | n/a |
-| `/testbed` | tmpfs, owned by the verified identity | the repository seed, the agent's workspace | yes | 192m (seed is 17.4 MiB measured) |
+| `/testbed` | tmpfs, owned by the verified identity | the repository seed, the agent's workspace | yes | 256m (was 192m, sized from measured seed footprints up to 160.4 MiB; see docs/M3_EXPERIMENT_DESIGN.md) |
 | `/opt/aiep` | tmpfs, owned by the verified identity | Claude Code binary and its files | yes | 256m (binary size unmeasured) |
 | `/tmp`, `<identity.home>` = `/home/nonroot` (the verified home) | tmpfs, owned by the identity, mode 0700 | scratch, Claude state | no | 128m each |
 | `/dev/shm` | Docker's per-container tmpfs, **private IPC**, size pinned by `AgentRunSpec.shm_size` | POSIX shared memory and semaphores (for example Python `multiprocessing` locks) | no (`noexec`) | 64m |

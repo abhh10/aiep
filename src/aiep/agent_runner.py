@@ -55,9 +55,11 @@ MAX_CLAUDE_OUTPUT = 32 * 1024 * 1024
 # size is UNKNOWN, so the pin carries a ceiling and this module sizes the tmpfs for it:
 #   binary ceiling            400 MiB   (config/claude_cli.json: max_binary_bytes)
 #   /opt/aiep tmpfs           416 MiB   = ceiling + 16 MiB slack (directory entries, rounding)
-#   tmpfs total + /dev/shm    192 (testbed) + 416 + 128 (tmp) + 128 (home) + 64 (shm) = 928 MiB  <= 1024 MiB aggregate cap
-#   container memory limit    2048 MiB; a completely full 928 MiB leaves 1120 MiB for processes, and the expected fill is the binary
-#                             plus the 17 MiB seed (about 357 MiB), which leaves about 1.6 GiB.
+#   tmpfs total + /dev/shm    256 (testbed) + 416 + 128 (tmp) + 128 (home) + 64 (shm) = 992 MiB  <= 1024 MiB aggregate cap (32 MiB slack)
+#   container memory limit    2048 MiB; a completely full 992 MiB leaves 1056 MiB for processes. The expected fill is the binary (338 MiB measured on macOS; the Linux
+#                             build is unmeasured) plus the seed's page-rounded footprint (17.4 MiB pytest-5227, 102.4 sympy-18621, up to 160.4 measured for django-15851),
+#                             i.e. up to about 500 MiB, which leaves about 1.5 GiB.
+#   /testbed                  256 MiB: the largest measured footprint (160.39 MiB) leaves 95.6 MiB for the agent's own writes (the calibrated sympy-18621 task had 89.6 MiB at 192 MiB).
 # (tests/test_agent_runner.py recomputes all of this against the policy constants.)
 MAX_COMPONENT_FILE_BYTES = 400 * 1024**2
 COMPONENTS_TMPFS_SIZE = "416m"
@@ -83,8 +85,8 @@ class AgentRunSpec:
     claude_args: tuple[str, ...] = ()  # flags only; the task never goes here
     image_id: str | None = None  # expected image ID; Phase 2 always sets it
     wall_clock_s: float = DEFAULT_WALL_CLOCK_S
-    # PLACEHOLDER sizes, to be set from measurement (seed: 17.4 MiB tmpfs-accurate for pytest-5227)
-    testbed_size: str = "192m"
+    # /testbed is sized from measured seed footprints (see the sizing comment above); tmp and home remain the original placeholders
+    testbed_size: str = "256m"
     tmp_size: str = "128m"
     home_size: str = "128m"
     components_size: str = COMPONENTS_TMPFS_SIZE

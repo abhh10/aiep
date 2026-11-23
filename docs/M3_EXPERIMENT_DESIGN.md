@@ -93,16 +93,32 @@ index digest. `prepare_pinned_task`, the pull wrapper (`scripts/pull_task_image.
 checks `image_id_of(<repository>:latest)`), so a digest-only image cannot be graded until a separate, approved step adds that local tag; that is deliberately not done here.
 Adding a task needs its record resolved and verified first (a `scripts/` resolver for that is not written yet; records so far were produced by hand from anonymous manifest requests).
 
-## Seed archive limit (128 MiB, validated for SymPy only)
-`task_setup.MAX_ARCHIVE_BYTES` (the raw tar limit when a task's `/testbed` is extracted into a seed) was 64 MiB, a placeholder sized for pytest-5227 (17.4 MiB). The first real preparation
-(`sympy__sympy-18621`) failed closed against it: a bounded, read-only probe (a disposable never-started container, `docker cp ... -` into a byte-counting tar reader) measured the SymPy
-`/testbed` at 104,282,112 B (99.45 MiB): 1,981 files, 358 directories, `.git` 70.6 MB (a 59.7 MB pack) and `sympy/` 28.3 MB. The limit is now 128 MiB. This is MEASURED FOR SYMPY ONLY, not a
-universal SWE-bench limit: other tasks are unmeasured (matplotlib and scikit-learn repositories are likely larger) and each needs the same probe once its image is local. The parser's own limits
-(256 MiB total content, 200,000 entries) and the agent `/testbed` tmpfs (192 MiB; SymPy content is 97.8 MiB) are unchanged; the INDIVIDUAL seed-file limit (`seed.MAX_SEED_FILE_BYTES`) was 64 MiB and is now **96 MiB**.
-Reason: measuring `sympy__sympy-22714` (image pulled, never prepared; no seed exists) found a 64.792 MiB Git pack, 811 KiB over the old per-file limit (its whole archive is 112.77 MiB, under the 128 MiB cap), and `django__django-13933` a 75.07 MiB pack
-(archive 133.78 MiB, over the archive cap, so the per-file change alone does not make it preparable). The four limits are distinct: the archive-wide raw tar cap (128 MiB, `task_setup.MAX_ARCHIVE_BYTES`), the individual seed-file limit (96 MiB), the trusted-component
-ceilings (`seed.DEFAULT_COMPONENT_FILE_BYTES`, 256 MiB for gateway/proxy code and probes, and `agent_runner.MAX_COMPONENT_FILE_BYTES`, 400 MiB for the Claude binary; both unchanged and independent of the seed-file limit), and the agent tmpfs capacity (`/testbed` 192 MiB, aggregate 1 GiB; unchanged). `.git` is not excluded: the agent extracts its patch with `git diff`
-against the seed HEAD and the handoff checks HEAD and its parent. Extraction still buffers the whole archive (estimated 300-400 MiB peak host memory for SymPy; not measured).
+## Seed archive limit (160 MiB) and the agent /testbed tmpfs (256 MiB); measured for the four E1 Stage 1 tasks
+`task_setup.MAX_ARCHIVE_BYTES` is the raw-tar limit when a task's `/testbed` is extracted into a seed. History: 64 MiB (a placeholder sized for pytest-5227, 17.4 MiB), then 128 MiB (validated for `sympy__sympy-18621` only), now **160 MiB**. The agent's `/testbed` tmpfs
+(`agent_runner.AgentRunSpec.testbed_size`) was 192 MiB and is now **256 MiB**. Both changes are code constants, not part of the hashed E1 definition, so its hash is unchanged; they apply identically to both arms and to every task.
+
+**Measured** (one-off, read-only probes of each pulled image: a never-started hardened container, `/testbed` streamed through a byte counter, nothing saved; none of these tasks has been prepared):
+
+| Task | Raw archive | Largest file (the `.git` pack) | Page-rounded `/testbed` footprint | Headroom in 256 MiB |
+|---|---|---|---|---|
+| `sympy__sympy-18621` | 99.45 MiB | 56.94 MiB | 102.42 MiB | 153.6 MiB |
+| `sympy__sympy-22714` | 112.77 MiB | 64.79 MiB | 116.04 MiB | 139.96 MiB |
+| `django__django-13933` | 133.78 MiB (140,280,320 B) | 75.07 MiB | 151.20 MiB | 104.80 MiB |
+| `django__django-15851` | 142.56 MiB (149,485,568 B) | 80.25 MiB | 160.39 MiB | 95.61 MiB |
+
+Both Django archives exceeded the old 128 MiB cap (13933 by 5.78 MiB, 15851 by 14.56 MiB). 160 MiB leaves 17.44 MiB (12%) over the largest measured archive. 256 MiB leaves the largest footprint 95.6 MiB for the agent's own writes, about what the calibrated SymPy task had at 192 MiB (89.6 MiB);
+the footprint is the sum of every file rounded up to 4 KiB pages (the model reproduces the code's own 17.4 MiB figure for pytest-5227), which is 1.03 times the archive for SymPy and about 1.13 times for Django (many small files). Coupling rule: cap x 1.13 + 64 MiB working space <= tmpfs (160 x 1.13 + 64 = 245 <= 256).
+**This is measured for these four tasks only**, not a universal SWE-bench limit: tasks that have not been probed (Stage 2, the registered replacements, matplotlib and scikit-learn repositories) may exceed it; a task over the cap fails its preparation gate (`seed_archive_over_limit`) and may be replaced under the pre-registered rule (next section).
+
+**Aggregate tmpfs and memory.** `/testbed` 256 + `/opt/aiep` 416 + `/tmp` 128 + HOME 128 + `/dev/shm` 64 = **992 MiB**, 32 MiB below the unchanged 1 GiB aggregate ceiling (it was 928 MiB); `/testbed` could rise to at most 288 MiB without also changing that ceiling. With the unchanged 2 GiB container memory limit a completely full tmpfs
+leaves 1056 MiB for processes (it was 1120 MiB). The expected fill is the Claude binary (338 MiB measured on macOS; the Linux build is unmeasured) plus the seed footprint, up to about 500 MiB.
+
+**Host memory during extraction (measured, fake host).** The archive is buffered up to the cap (`seed_source.read_bounded` refuses, never truncates, and stops reading at cap + 1 block however long the stream is) and then parsed and rebuilt in memory; nothing is extracted on the host. For a realistic 157 MiB archive (9,816 entries, an 80 MiB pack) the peak Python allocation
+during `extract_and_pin_seed` was 490 MiB (3.1x the archive; 4.8 s), so about 500 MiB at the 160 MiB cap, bounded by the cap and not by the stream. The files are extracted only inside the agent container's tmpfs by `tar -x -p --no-same-owner` as the non-root user, after the parser's path, symlink, hard-link and special-file checks.
+
+**What is unchanged.** One seed file 96 MiB (`seed.MAX_SEED_FILE_BYTES`; the largest measured file is 80.25 MiB), total extracted content 256 MiB, 200,000 entries, the trusted-component ceilings (`seed.DEFAULT_COMPONENT_FILE_BYTES` 256 MiB and `agent_runner.MAX_COMPONENT_FILE_BYTES` 400 MiB), `/tmp` and HOME 128 MiB, `/dev/shm` 64 MiB, the 1 GiB aggregate ceiling, the 2 GiB memory
+limit and every network and security limit. The individual seed-file limit was raised from 64 MiB to 96 MiB earlier (sympy-22714's 64.792 MiB pack). The calibration runs used the old 192 MiB tmpfs and remain excluded from scoring; cost and tokens do not depend on tmpfs capacity. `.git` is not excluded: the agent extracts its patch with `git diff`
+against the seed HEAD and the handoff checks HEAD and its parent.
 
 ## Replacement of a task that fails a preparation gate (implemented; mocks only; NO task has been replaced)
 The E1 definition already pre-registers the trigger ("a task is replaced ONLY if it fails its gold or no-op control, its image cannot be pinned or fails the preparation gate, or ... its recorded compatibility decision is

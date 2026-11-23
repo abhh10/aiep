@@ -675,8 +675,8 @@ def test_agent_spec_requires_identity_and_configuration_without_defaults():
 # ---------------- /dev/shm and IPC mode: explicit, private, pinned ----------------
 PREVIOUS_CREATE_KEYS = {"cap_drop", "command", "detach", "environment", "image", "labels", "mem_limit", "memswap_limit", "name",
                         "nano_cpus", "network", "pids_limit", "read_only", "security_opt", "tmpfs", "user", "working_dir"}
-PREVIOUS_TMPFS = {  # exactly what the runner produced before /dev/shm was made explicit (identity 1000:1000, default sizes)
-    "/testbed": "rw,exec,nosuid,nodev,size=192m,uid=1000,gid=1000,mode=0755",
+PREVIOUS_TMPFS = {  # exactly what the runner produced before /dev/shm was made explicit (identity 1000:1000, default sizes; /testbed has been 256m since the measured Django seeds)
+    "/testbed": "rw,exec,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0755",
     "/opt/aiep": "rw,exec,nosuid,nodev,size=416m,uid=1000,gid=1000,mode=0755",
     "/tmp": "rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700",
     "/home/nonroot": "rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700",
@@ -820,14 +820,17 @@ def test_component_sizing_arithmetic_fits_the_policy_caps():
     from aiep.container_policy import (AGENT_MEM_BYTES, TMPFS_MAX_EACH_BYTES, TMPFS_MAX_TOTAL_BYTES, _parse_size,
                                        validate_shm_size)
     MiB = 1024**2
-    sizes = {"testbed": "192m", "components": AR.COMPONENTS_TMPFS_SIZE, "tmp": "128m", "home": "128m"}
+    fields = AR.AgentRunSpec.__dataclass_fields__  # the REAL defaults, so this arithmetic can never drift from the code it describes
+    sizes = {"testbed": fields["testbed_size"].default, "components": AR.COMPONENTS_TMPFS_SIZE, "tmp": fields["tmp_size"].default, "home": fields["home_size"].default}
+    assert sizes == {"testbed": "256m", "components": "416m", "tmp": "128m", "home": "128m"}
     parsed = {k: _parse_size(v) for k, v in sizes.items()}
     shm = validate_shm_size("64m")
     assert AR.MAX_COMPONENT_FILE_BYTES == 400 * MiB and parsed["components"] == 416 * MiB
     assert parsed["components"] >= AR.MAX_COMPONENT_FILE_BYTES + 16 * MiB  # ceiling plus 16 MiB slack
     assert parsed["components"] <= TMPFS_MAX_EACH_BYTES
-    assert sum(parsed.values()) + shm == 928 * MiB <= TMPFS_MAX_TOTAL_BYTES == 1024 * MiB
-    assert AGENT_MEM_BYTES - (sum(parsed.values()) + shm) >= 1024 * MiB  # a completely full tmpfs still leaves >= 1 GiB for processes
+    assert sum(parsed.values()) + shm == 992 * MiB <= TMPFS_MAX_TOTAL_BYTES == 1024 * MiB  # 256 + 416 + 128 + 128 + 64; 32 MiB below the 1 GiB aggregate ceiling
+    assert TMPFS_MAX_TOTAL_BYTES - (sum(parsed.values()) + shm) == 32 * MiB
+    assert AGENT_MEM_BYTES - (sum(parsed.values()) + shm) >= 1024 * MiB  # a completely full tmpfs still leaves >= 1 GiB for processes (1056 MiB)
     assert AR.MAX_COMPONENT_FILE_BYTES + 1024 * 1024 < MAX_STDIN_BYTES  # the injection tar fits the exec stdin cap with room for tar headers
 
 

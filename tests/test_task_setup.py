@@ -166,7 +166,7 @@ def test_seed_lineage_with_real_git_on_a_real_seed(tmp_path):
     assert lin == {"head": head, "parent": base}
 
 
-# ---------------------------------------------------------------- archive limit: 128 MiB, validated for SymPy only (measured 104,282,112 B = 99.45 MiB)
+# ---------------------------------------------------------------- archive limit: 160 MiB (measured: sympy-18621 99.45, sympy-22714 112.77, django-13933 133.78, django-15851 142.56 MiB)
 import io
 import tarfile
 
@@ -189,17 +189,17 @@ def big_tar(total_payload, n_files=2):
     return make_tar(entries)
 
 
-def test_the_archive_limit_is_128_mib_and_the_other_limits_and_the_tmpfs_are_unchanged():
-    assert ts.MAX_ARCHIVE_BYTES == 128 * MIB
-    assert (seed_module.MAX_SEED_BYTES, seed_module.MAX_SEED_FILE_BYTES, seed_module.MAX_ENTRIES) == (256 * MIB, 96 * MIB, 200_000)  # the per-file limit is the one that was raised, from 64 MiB
+def test_the_archive_limit_is_160_mib_and_the_other_limits_and_the_tmpfs_are_as_approved():
+    assert ts.MAX_ARCHIVE_BYTES == 160 * MIB  # raised from 128 MiB: both Django tasks measured above it
+    assert (seed_module.MAX_SEED_BYTES, seed_module.MAX_SEED_FILE_BYTES, seed_module.MAX_ENTRIES) == (256 * MIB, 96 * MIB, 200_000)  # content, per-file and entry limits are unchanged
     spec_default = AgentRunSpec.__dataclass_fields__["testbed_size"].default
-    assert spec_default == "192m" and ts.MAX_ARCHIVE_BYTES < 192 * MIB
+    assert spec_default == "256m" and ts.MAX_ARCHIVE_BYTES < 256 * MIB  # the archive cap stays well inside the tmpfs
 
 
-def test_the_agent_testbed_tmpfs_stays_exactly_192_mib():
+def test_the_agent_testbed_tmpfs_is_exactly_256_mib():
     import test_agent_runner as tar_
     spec = tar_.spec_for(tar_.parse_seed_archive(make_tar(good_entries())))
-    assert "size=192m" in tmpfs_for(spec)["/testbed"]
+    assert "size=256m" in tmpfs_for(spec)["/testbed"]
 
 
 def test_an_archive_of_the_measured_sympy_size_is_accepted_and_pinned(root):
@@ -209,25 +209,25 @@ def test_an_archive_of_the_measured_sympy_size_is_accepted_and_pinned(root):
     assert pins(root)[INSTANCE]["sha256"] == r["seed_sha256"] and r["entries"] > 5
 
 
-def test_an_archive_over_128_mib_is_refused_not_truncated_and_nothing_is_pinned_or_left_behind(root):
+def test_an_archive_over_160_mib_is_refused_not_truncated_and_nothing_is_pinned_or_left_behind(root):
     h = FakeHost()
     block = b"\0" * MIB
-    h.chunks = [block] * 128 + [b"x"]  # 128 MiB + 1 byte, referencing one block: no big allocation
+    h.chunks = [block] * 160 + [b"x"]  # 160 MiB + 1 byte, referencing one block: no big allocation
     with pytest.raises(SeedSourceError, match="exceeds"):
         go(root, h)
     assert INSTANCE not in pins(root) and not list((root / ".cache" / "seeds" / INSTANCE).glob("seed*"))
     assert [c for c, _ in h.removed]  # the seed-source container was still removed
 
 
-def test_exactly_128_mib_is_not_over_the_limit():
+def test_exactly_160_mib_is_not_over_the_limit():
     from aiep.seed_source import read_bounded
-    assert len(read_bounded([b"\0" * MIB] * 128, ts.MAX_ARCHIVE_BYTES)) == 128 * MIB
+    assert len(read_bounded([b"\0" * MIB] * 160, ts.MAX_ARCHIVE_BYTES)) == 160 * MIB
     with pytest.raises(SeedSourceError):
-        read_bounded([b"\0" * MIB] * 128 + [b"x"], ts.MAX_ARCHIVE_BYTES)
+        read_bounded([b"\0" * MIB] * 160 + [b"x"], ts.MAX_ARCHIVE_BYTES)
 
 
 def test_the_per_file_limit_still_applies_inside_the_larger_archive(root):
-    raw = big_tar(100 * MIB, n_files=1)  # one 100 MiB file: under the 128 MiB archive limit, over the 96 MiB per-file limit
+    raw = big_tar(100 * MIB, n_files=1)  # one 100 MiB file: under the 160 MiB archive limit, over the 96 MiB per-file limit
     assert len(raw) < ts.MAX_ARCHIVE_BYTES
     with pytest.raises(seed_module.SeedError, match="per-file"):
         go(root, FakeHost(tar=raw, chunk=4 * MIB))
@@ -235,7 +235,7 @@ def test_the_per_file_limit_still_applies_inside_the_larger_archive(root):
 
 
 def test_the_measured_sympy_22714_pack_size_is_accepted_through_the_whole_pipeline(root):
-    pack = 67_939_731  # 64.792 MiB: over the old 64 MiB per-file limit, under the new 96 MiB one (the archive stays far under 128 MiB)
+    pack = 67_939_731  # 64.792 MiB: over the old 64 MiB per-file limit, under the new 96 MiB one (the archive stays far under the archive cap)
     raw = big_tar(pack + 60_000, n_files=1)
     assert len(raw) < ts.MAX_ARCHIVE_BYTES and pack > 64 * MIB
     r = go(root, FakeHost(tar=raw, chunk=4 * MIB))

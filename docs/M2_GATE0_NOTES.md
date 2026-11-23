@@ -31,9 +31,9 @@ The macOS arm64 build of 2.1.328 is 338 MiB (measured locally). The Linux x64 si
 |---|---|
 | Binary ceiling (hard refusal above it) | 400 |
 | `/opt/aiep` tmpfs = ceiling + 16 slack | 416 |
-| `/testbed` + `/opt/aiep` + `/tmp` + HOME + `/dev/shm` | 192 + 416 + 128 + 128 + 64 = **928** (aggregate cap 1024) |
+| `/testbed` + `/opt/aiep` + `/tmp` + HOME + `/dev/shm` | 256 + 416 + 128 + 128 + 64 = **992** (aggregate cap 1024; `/testbed` was 192 and the total 928 until the measured Django seeds, see M3_EXPERIMENT_DESIGN) |
 | Container memory limit | 2048 |
-| Left for processes if every tmpfs were full | 1120 |
+| Left for processes if every tmpfs were full | 1056 (was 1120) |
 | Expected tmpfs fill (binary + 17 MiB seed) | about 357, leaving about 1.6 GiB |
 
 The injection tar for a 400 MiB binary must fit `MAX_STDIN_BYTES` (512 MiB). `verify_archive` now hashes in 1 MiB blocks, so verifying a
