@@ -362,8 +362,10 @@ def _run_block(definition: Mapping[str, Any], steps: Steps, store: StateStore, w
         failed = _compat_failures(definition, st, task)  # a conditional task needs its recorded compatibility decision BEFORE anything is prepared or run
         if not failed:
             if not steps.task_prepared(task):
-                if not ap.pulls:
-                    raise BatchHalt("task_not_prepared", f"{task} is not pinned (image, seed, identity) and pulls/pins were not approved")
+                why = getattr(steps, "unprepared_reason", None)  # optional: steps that can say WHY (incomplete pins vs a complete task whose pinned image is not local)
+                reason = (why(task) if callable(why) else None) or "its image, seed and identity pins are incomplete, or its pinned image is not local"
+                if not ap.pulls:  # the pull-approval boundary: an absent image is never pulled, and nothing runs, without it
+                    raise BatchHalt("task_not_prepared", f"{task} is not prepared: {reason}; pulls/pins were not approved")
                 store.event("prepare_task", task=task)
                 info = steps.prepare_task(task) or {}
                 bstate["pulled"][task] = bool(info.get("pulled"))  # only an image THIS batch pulled is ever removed by it

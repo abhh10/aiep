@@ -134,8 +134,28 @@ class RealSteps:
         self.d.sleep(seconds)
 
     # ---- per-task preparation (approval-gated by the batch)
+    def unprepared_reason(self, task_id: str) -> str | None:
+        """None when the task is prepared; otherwise WHY not. Prepared means BOTH complete, valid pins (image, seed, identity) AND the exact pinned image ID present in the local Docker image
+        store. The lookup is by the pinned ID only (never a tag, never another image); an image that is absent, a different ID, or any Docker lookup failure all count as not prepared. This
+        never pulls: pulling is only ever done by ``prepare_task``, which the batch calls solely under the pull approval."""
+        status = pin_status(self.root, task_id)
+        if not status["runnable"]:
+            return f"its pins are incomplete (missing: {', '.join(status['missing'])})"
+        image_id = evaluator_image_pin(self.root, task_id)["image_id"]
+        try:
+            client = self.d.client_factory()
+            try:
+                found = self.d.image_id_of(client, image_id)
+            finally:
+                client.close()
+        except Exception:  # Docker unreachable or the lookup failed: the image cannot be shown to be present
+            found = None
+        if found != image_id:
+            return f"its pins are complete but the pinned image {image_id} is not present locally (or Docker could not be queried)"
+        return None
+
     def task_prepared(self, task_id: str) -> bool:
-        return bool(pin_status(self.root, task_id)["runnable"])
+        return self.unprepared_reason(task_id) is None
 
     def prepare_task(self, task_id: str) -> dict[str, Any]:
         return prepare_pinned_task(root=self.root, task_id=task_id, client_factory=self.d.client_factory, free_gib=self.free_gib, digest_record=self.d.digest_record,

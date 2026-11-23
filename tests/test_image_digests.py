@@ -68,9 +68,26 @@ def lock_root(tmp_path, record=None, instance=INSTANCE):
 
 
 # ---------------------------------------------------------------- the lock file
-def test_the_shipped_lock_has_exactly_the_verified_record_for_sympy_18621_and_nothing_else():
+STAGE_1_RECORDS = ["sympy__sympy-18621", "django__django-13933", "django__django-15851", "sympy__sympy-22714"]
+NEW_STAGE_1_INDEXES = {  # verified by anonymous registry manifest requests on 2026-11-23: index digest, total compressed layer bytes
+    "django__django-13933": ("sha256:0f3b43fc1c71e443ccaac6c84253a158a37026f8d4bb192e2e81da36f0a3abbc", 1_192_641_585),
+    "django__django-15851": ("sha256:aa80884e053cf1a238df7c4ceec43e4e07929547f658278bd3c3154f0ef8bc90", 1_213_001_963),
+    "sympy__sympy-22714": ("sha256:85c5000278d19e07ccbfc130861bb3407d4e5494ecbe6ca4cfff0b5e58f25815", 1_094_998_265),
+}
+NEVER_LOCKED = "astropy__astropy-12907"  # a valid SWE-bench Lite task identity that is not in this study and has no digest record
+
+
+def test_the_shipped_lock_has_exactly_the_four_verified_stage_1_records_and_nothing_else():
     doc = json.loads((REAL / "config" / "image_digests.json").read_text())
-    assert list(doc["images"]) == ["sympy__sympy-18621"] and doc["platform"] == "linux/amd64"
+    assert sorted(doc["images"]) == sorted(STAGE_1_RECORDS) and doc["platform"] == "linux/amd64"
+    for task, (index, size) in NEW_STAGE_1_INDEXES.items():
+        n = task.split("__")[1]
+        rec = idg.load_digest_record(REAL, task)  # the real validator accepts it
+        assert rec["repository"] == f"swebench/sweb.eval.x86_64.{task.split('__')[0]}_1776_{task.split('__')[1]}"
+        assert rec["index_digest"] == index and idg.reference(rec) == rec["repository"] + "@" + index
+        assert rec["compressed_layer_bytes"] == size == sum(l["size"] for l in rec["layers"]) and len(rec["layers"]) == 10
+        assert rec["platform"] == "linux/amd64" and rec["provenance"]["verified_on"] == "2026-11-23" and rec["provenance"]["source"]
+        assert not re.search(rf"{n}:", json.dumps(doc["images"][task]))  # no tagged reference in the record
     r = idg.load_digest_record(REAL, "sympy__sympy-18621")
     assert r["repository"] == "swebench/sweb.eval.x86_64.sympy_1776_sympy-18621"
     assert r["index_digest"] == "sha256:6ceb7424d50163dbea48b63200bb124317e530dd314cb29e1d98d8cafdc1b411"
@@ -92,8 +109,10 @@ def test_valid_record_loads(tmp_path):
 def test_missing_record_fails_closed_without_inventing_one(tmp_path):
     with pytest.raises(DigestError, match="no digest record"):
         idg.load_digest_record(lock_root(tmp_path), INSTANCE)
+    assert NEVER_LOCKED not in json.loads((REAL / "config" / "image_digests.json").read_text())["images"]  # the precondition: this identity genuinely has no record
     with pytest.raises(DigestError, match="no digest record"):
-        idg.load_digest_record(REAL, "sympy__sympy-22714")  # a pilot task that has not been locked
+        idg.load_digest_record(REAL, NEVER_LOCKED)  # a valid task identity that has not been locked: still fails closed, nothing is invented
+    assert NEVER_LOCKED not in json.loads((REAL / "config" / "image_digests.json").read_text())["images"]  # and the lock file was not changed by the lookup
 
 
 @pytest.mark.parametrize("mut,needle", [
