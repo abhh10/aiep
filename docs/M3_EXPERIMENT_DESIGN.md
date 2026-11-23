@@ -98,7 +98,10 @@ Adding a task needs its record resolved and verified first (a `scripts/` resolve
 (`sympy__sympy-18621`) failed closed against it: a bounded, read-only probe (a disposable never-started container, `docker cp ... -` into a byte-counting tar reader) measured the SymPy
 `/testbed` at 104,282,112 B (99.45 MiB): 1,981 files, 358 directories, `.git` 70.6 MB (a 59.7 MB pack) and `sympy/` 28.3 MB. The limit is now 128 MiB. This is MEASURED FOR SYMPY ONLY, not a
 universal SWE-bench limit: other tasks are unmeasured (matplotlib and scikit-learn repositories are likely larger) and each needs the same probe once its image is local. The parser's own limits
-(256 MiB content, 64 MiB per file, 200,000 entries) and the agent `/testbed` tmpfs (192 MiB; SymPy content is 97.8 MiB) are unchanged. `.git` is not excluded: the agent extracts its patch with `git diff`
+(256 MiB total content, 200,000 entries) and the agent `/testbed` tmpfs (192 MiB; SymPy content is 97.8 MiB) are unchanged; the INDIVIDUAL seed-file limit (`seed.MAX_SEED_FILE_BYTES`) was 64 MiB and is now **96 MiB**.
+Reason: measuring `sympy__sympy-22714` (image pulled, never prepared; no seed exists) found a 64.792 MiB Git pack, 811 KiB over the old per-file limit (its whole archive is 112.77 MiB, under the 128 MiB cap), and `django__django-13933` a 75.07 MiB pack
+(archive 133.78 MiB, over the archive cap, so the per-file change alone does not make it preparable). The four limits are distinct: the archive-wide raw tar cap (128 MiB, `task_setup.MAX_ARCHIVE_BYTES`), the individual seed-file limit (96 MiB), the trusted-component
+ceilings (`seed.DEFAULT_COMPONENT_FILE_BYTES`, 256 MiB for gateway/proxy code and probes, and `agent_runner.MAX_COMPONENT_FILE_BYTES`, 400 MiB for the Claude binary; both unchanged and independent of the seed-file limit), and the agent tmpfs capacity (`/testbed` 192 MiB, aggregate 1 GiB; unchanged). `.git` is not excluded: the agent extracts its patch with `git diff`
 against the seed HEAD and the handoff checks HEAD and its parent. Extraction still buffers the whole archive (estimated 300-400 MiB peak host memory for SymPy; not measured).
 
 ## Evaluator image policy (fail closed)

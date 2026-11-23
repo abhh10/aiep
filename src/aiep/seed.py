@@ -34,8 +34,13 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 SCHEMA = 1
-MAX_SEED_BYTES = 256 * 1024**2
-MAX_FILE_BYTES = 64 * 1024**2
+MAX_SEED_BYTES = 256 * 1024**2  # total extracted content of a seed
+# One regular file inside a SEED (a repository checkout). Raised from 64 MiB: the measured Git pack of sympy__sympy-22714 is 64.792 MiB (67,939,731 B). It applies to seed files ONLY; the
+# trusted-component ceilings below (and agent_runner.MAX_COMPONENT_FILE_BYTES for the Claude binary) are separate constants, so changing this one never changes them.
+MAX_SEED_FILE_BYTES = 96 * 1024**2
+# The default per-file ceiling of ``build_component_archive`` (gateway/proxy code, probes). It was once derived as 4 x the seed-file limit; it is now its own constant with the same value,
+# so that the seed-file limit can change without moving it. The Claude binary passes its own explicit ceiling (agent_runner.MAX_COMPONENT_FILE_BYTES, 400 MiB).
+DEFAULT_COMPONENT_FILE_BYTES = 256 * 1024**2
 MAX_ENTRIES = 200_000
 MAX_PATH_LEN = 4096
 MAX_COMPONENT_LEN = 255
@@ -210,7 +215,7 @@ def parse_seed_archive(data: bytes | BinaryIO, *, root: str = "testbed") -> Seed
                 _check_symlink(rel, m.linkname)
                 items.append((Entry("l", 0o777, 0, None, m.linkname, rel), None, int(m.mtime)))
             elif m.isreg():
-                if m.size > MAX_FILE_BYTES:
+                if m.size > MAX_SEED_FILE_BYTES:
                     raise SeedError(f"{rel!r} is larger than the per-file limit")
                 total += m.size
                 if total > MAX_SEED_BYTES:
@@ -234,7 +239,7 @@ def parse_seed_archive(data: bytes | BinaryIO, *, root: str = "testbed") -> Seed
 
 
 def build_component_archive(files: dict[str, tuple[bytes, int]], *, mtime: int = 0,
-                            max_file_bytes: int = MAX_FILE_BYTES * 4) -> Seed:
+                            max_file_bytes: int = DEFAULT_COMPONENT_FILE_BYTES) -> Seed:
     """Injection tar for a few trusted files, e.g. ``{"claude": (binary_bytes, 0o755)}``.
 
     Directories are created implicitly (mode 0755). Used for the Claude Code binary and the

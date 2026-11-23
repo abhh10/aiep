@@ -148,10 +148,10 @@ def test_missing_or_unresolvable_head_refused():
 
 
 def test_limits_are_enforced(monkeypatch):
-    monkeypatch.setattr(S, "MAX_FILE_BYTES", 100)
+    monkeypatch.setattr(S, "MAX_SEED_FILE_BYTES", 100)
     with pytest.raises(SeedError, match="per-file"):
         parse_seed_archive(make_tar(good_entries()))
-    monkeypatch.setattr(S, "MAX_FILE_BYTES", 10**9)
+    monkeypatch.setattr(S, "MAX_SEED_FILE_BYTES", 10**9)
     monkeypatch.setattr(S, "MAX_SEED_BYTES", 500)
     with pytest.raises(SeedError, match="total size"):
         parse_seed_archive(make_tar(good_entries()))
@@ -369,7 +369,7 @@ def test_component_ceiling_is_explicit_and_still_enforced():
         with pytest.raises(SeedError):
             build_component_archive({"f": (b"x", 0o755)}, max_file_bytes=bad)
     import inspect
-    assert inspect.signature(build_component_archive).parameters["max_file_bytes"].default == S.MAX_FILE_BYTES * 4  # default unchanged
+    assert inspect.signature(build_component_archive).parameters["max_file_bytes"].default == S.DEFAULT_COMPONENT_FILE_BYTES == 256 * 1024**2  # default unchanged, now its own constant
 
 
 def test_verify_archive_streams_large_files_and_still_detects_tampering():
@@ -379,3 +379,78 @@ def test_verify_archive_streams_large_files_and_still_detects_tampering():
     broken = S.Seed(seed.manifest, seed.tar.replace(body[1_500_000:1_500_016], b"\x00" * 16))
     with pytest.raises(SeedError):
         verify_archive(broken)
+
+
+# ---------------------------------------------------------------- the individual seed-file limit (96 MiB) and its independence from the component ceilings
+MIB = 1024**2
+PACK_22714 = 67_939_731  # the measured .git pack of sympy__sympy-22714: 64.792 MiB, over the old 64 MiB limit, under the new one
+
+
+def header_only_tar(size):
+    """A /testbed tar whose one file CLAIMS ``size`` bytes but carries no data: enough for the parser's header-time size check, with no large allocation."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as tf:
+        root = tarfile.TarInfo("testbed")
+        root.type, root.mode = tarfile.DIRTYPE, 0o755
+        tf.addfile(root)
+        big = tarfile.TarInfo("testbed/big.bin")
+        big.size, big.mode = size, 0o644
+        tf.addfile(big)  # no fileobj: the header only
+    return buf.getvalue()
+
+
+def test_the_limits_are_exactly_the_approved_values_and_the_old_shared_name_is_gone():
+    import aiep.agent_runner as AR
+    assert (S.MAX_SEED_BYTES, S.MAX_SEED_FILE_BYTES, S.MAX_ENTRIES) == (256 * MIB, 96 * MIB, 200_000)
+    assert S.DEFAULT_COMPONENT_FILE_BYTES == 256 * MIB and AR.MAX_COMPONENT_FILE_BYTES == 400 * MIB  # the component ceilings are exactly what they were
+    assert not hasattr(S, "MAX_FILE_BYTES")  # one shared name for two different limits was the hazard; anything still using it now fails loudly
+
+
+def test_a_seed_file_between_64_and_96_mib_is_accepted_and_so_is_the_measured_22714_pack():
+    assert 64 * MIB < PACK_22714 <= S.MAX_SEED_FILE_BYTES  # the measured pack passes the individual-file check
+    entries = good_entries() + [("data", "d", None, 0o755), ("data/pack.bin", "f", b"\0" * PACK_22714, 0o644)]
+    parsed = parse_seed_archive(make_tar(entries))
+    assert [e.size for e in parsed.manifest.entries if e.path == "data/pack.bin"] == [PACK_22714]
+
+
+def test_a_seed_file_above_96_mib_is_rejected_by_its_header_and_exactly_96_mib_passes_the_size_check():
+    with pytest.raises(SeedError, match="per-file"):
+        parse_seed_archive(header_only_tar(96 * MIB + 1))
+    with pytest.raises((SeedError, tarfile.ReadError)) as e:  # exactly 96 MiB gets PAST the size check; it fails later only because this test archive carries no data (tarfile's own ReadError)
+        parse_seed_archive(header_only_tar(96 * MIB))
+    assert "per-file" not in str(e.value)
+
+
+def test_the_per_file_boundary_is_exact(monkeypatch):
+    monkeypatch.setattr(S, "MAX_SEED_FILE_BYTES", 1000)
+    assert parse_seed_archive(make_tar(good_entries() + [("blob", "f", b"x" * 1000, 0o644)]))
+    with pytest.raises(SeedError, match="per-file"):
+        parse_seed_archive(make_tar(good_entries() + [("blob", "f", b"x" * 1001, 0o644)]))
+
+
+def test_component_archives_are_not_governed_by_the_seed_file_limit(monkeypatch):
+    monkeypatch.setattr(S, "MAX_SEED_FILE_BYTES", 10)  # a tiny seed limit must not touch a trusted component...
+    assert build_component_archive({"f": (b"x" * 1000, 0o755)}).manifest.entries
+    with pytest.raises(SeedError, match="too large"):  # ...whose own explicit ceiling is still enforced exactly
+        build_component_archive({"f": (b"x" * 1000, 0o755)}, max_file_bytes=999)
+    monkeypatch.setattr(S, "MAX_SEED_FILE_BYTES", 10**9)  # and a huge seed limit must not loosen the default component ceiling
+    import inspect
+    assert inspect.signature(build_component_archive).parameters["max_file_bytes"].default == 256 * MIB
+
+
+def test_the_total_content_cap_is_still_256_mib_and_independent_of_the_file_limit(monkeypatch):
+    assert S.MAX_SEED_BYTES == 256 * MIB > S.MAX_SEED_FILE_BYTES
+    monkeypatch.setattr(S, "MAX_SEED_BYTES", 500)
+    with pytest.raises(SeedError, match="total size"):
+        parse_seed_archive(make_tar(good_entries()))
+
+
+SYMPY_18621_SEED = Path(__file__).resolve().parents[1] / ".cache" / "seeds" / "sympy__sympy-18621"
+
+
+@pytest.mark.skipif(not (SYMPY_18621_SEED / "seed.tar").exists(), reason="the (git-ignored) sympy-18621 seed is not on this machine")
+def test_the_existing_sympy_18621_seed_is_still_valid_and_well_inside_the_limit():
+    pin = json.loads((Path(__file__).resolve().parents[1] / "config" / "seeds.json").read_text())["seeds"]["sympy__sympy-18621"]
+    seed = load_seed(SYMPY_18621_SEED, expected_sha256=pin["sha256"])  # hash and full re-verification, read-only
+    assert seed.manifest.archive_sha256 == pin["sha256"] and seed.manifest.head == pin["head"]
+    assert max(e.size for e in seed.manifest.entries if e.type == "f") <= S.MAX_SEED_FILE_BYTES
