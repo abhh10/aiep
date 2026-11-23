@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "status": "verified",
+  "name": "nonroot",
+  "uid": 1000,
+  "gid": 1000,
+  "home": "/home/nonroot",
+  "shell": "/bin/bash",
+  "supplementary_groups": [],
+  "verification_python": "/opt/miniconda3/bin/python",
+  "testbed_python": "/opt/miniconda3/envs/testbed/bin/python",
+  "verified_image_id": "sha256:85c5000278d19e07ccbfc130861bb3407d4e5494ecbe6ca4cfff0b5e58f25815",
+  "verified_on": "2026-11-23",
+  "evidence": [
+    "identity probe in a throwaway hardened container (network none, all capabilities dropped, no-new-privileges) from image sha256:85c5000278d19e07ccbfc130861bb3407d4e5494ecbe6ca4cfff0b5e58f25815: uid 1000, gid 1000, name nonroot, passwd entry nonroot:x:1000:1000:dog,,,:/home/nonroot:/bin/bash"
+  ],
+  "still_unverified": [
+    "the per-run identity probe (IDENTITY_SCRIPT) is the run-time re-check of these values and remains mandatory"
+  ]
+}
