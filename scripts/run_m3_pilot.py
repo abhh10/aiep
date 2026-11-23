@@ -150,6 +150,8 @@ def main(argv: list[str] | None = None, *, root: Path = ROOT, env: dict | None =
     ap.add_argument("--approve-controls", action="store_true")
     ap.add_argument("--approve-image-removal", action="store_true")
     ap.add_argument("--ack-halt")
+    ap.add_argument("--stages", type=int, nargs="+", default=[1], metavar="N",
+                    help="exploratory definitions: the stages to run, a prefix of their stages (default: 1 only; later stages never start unless named, and cannot skip an earlier one)")
     ap.add_argument("--claude-binary", type=Path)
     ap.add_argument("--prepare-only", action="store_true")
     ap.add_argument("--task", action="append", default=[])
@@ -164,7 +166,12 @@ def main(argv: list[str] | None = None, *, root: Path = ROOT, env: dict | None =
         return prepare_only(definition, args, root, prepare_fn or (lambda r, t, *, approved_pulls: real_prepare(r, t, approved_pulls=approved_pulls)))
     key = env.get("AIEP_UPSTREAM_API_KEY", "")
     if not args.execute:
-        for line in m3_batch.plan(definition):
+        try:
+            plan_lines = m3_batch.plan(definition, tuple(args.stages))
+        except m3_batch.BatchHalt as h:
+            print(f"REFUSED: {h}", file=sys.stderr)
+            return 2
+        for line in plan_lines:
             print(line)
         for t in definition["preregistration"]["tasks"]:
             s = pin_status(root, t["instance_id"])
@@ -173,6 +180,10 @@ def main(argv: list[str] | None = None, *, root: Path = ROOT, env: dict | None =
             print(f"  blocker: {b}")
         return 0
     open_items = blockers(root, definition, args, bool(key))
+    try:
+        m3_batch.validate_stage_selection(definition, tuple(args.stages))
+    except m3_batch.BatchHalt as h:
+        open_items.append(f"--stages: {h.detail}")
     if open_items:
         print("REFUSED (nothing was started):", file=sys.stderr)
         for b in open_items:
@@ -181,14 +192,15 @@ def main(argv: list[str] | None = None, *, root: Path = ROOT, env: dict | None =
     steps = steps_factory(root, definition, args, key) if steps_factory else real_steps(root, definition, args, key)
     base = root / "runs" / "m3" / definition["experiment_id"]
     approvals = m3_batch.Approvals(spend_usd=args.approve_spend, pulls=args.approve_pulls, controls=args.approve_controls, remove_images=args.approve_image_removal,
-                                   acknowledge_halt=args.ack_halt)
+                                   acknowledge_halt=args.ack_halt, stages=tuple(sorted(set(args.stages))))
     try:
         st = m3_batch.run_pilot(definition, steps, state_path=base / "state.json", results_path=base / "results.jsonl", approvals=approvals, execute=True)
     except m3_batch.BatchHalt as h:
         print(f"REFUSED/HALTED: {h}", file=sys.stderr)
         return 2
-    print(json.dumps({"status": st["status"], "halt": st.get("halt"), "cumulative_cost_usd": st["cumulative_cost_usd"], "replacements": st["replacements"]}, indent=2))
-    return 0 if st["status"] == "complete" else 1
+    print(json.dumps({"status": st["status"], "halt": st.get("halt"), "early_stop": st.get("early_stop"), "cumulative_cost_usd": st["cumulative_cost_usd"], "replacements": st["replacements"],
+                      "summary": st.get("summary")}, indent=2))
+    return 0 if st["status"] in ("complete", "complete_with_unrun_stages") else 1
 
 
 if __name__ == "__main__":

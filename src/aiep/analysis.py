@@ -25,6 +25,18 @@ LABEL = "FEASIBILITY PILOT: 8 tasks, one run per arm per task. Descriptive only;
 BOOTSTRAP_RESAMPLES = 5000
 
 
+def label_for(definition: Mapping[str, Any]) -> str:
+    """The report label comes from the definition: an exploratory definition's own claim scope, else the feasibility-pilot label with the definition's task count."""
+    if definition.get("kind") == "exploratory_ab":
+        return str(definition["claim_scope"])
+    return LABEL.replace("8 tasks", f"{len(definition['preregistration']['tasks'])} tasks")
+
+
+def _n(r: Mapping[str, Any], k: str) -> int:
+    v = r.get(k)
+    return v if isinstance(v, int) and not isinstance(v, bool) else 0
+
+
 def mcnemar_exact_two_sided(b: int, c: int) -> float:
     """Exact two-sided McNemar test on the discordant counts (b = B only, c = A only): a two-sided binomial test of p = 1/2. 1.0 when there are none."""
     n = b + c
@@ -75,6 +87,12 @@ def _arm_stats(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "turns_mean": (sum(r["turns"] for r in rows if isinstance(r.get("turns"), int)) / max(1, sum(isinstance(r.get("turns"), int) for r in rows))),
             "test_usage_runs": sum(bool(r.get("test_usage")) for r in rows), "compliant_runs": sum(bool(r.get("compliance")) for r in rows),
             "test_runs_mean": sum(r.get("test_runs", 0) for r in rows) / len(rows), "test_fix_cycles_mean": sum(r.get("test_fix_cycles", 0) for r in rows) / len(rows),
+            "test_runs_started_total": sum(_n(r, "test_runs_started") for r in rows), "test_runs_not_started_total": sum(_n(r, "test_runs_not_started") for r in rows),
+            "test_runs_completed_with_failures_total": sum(_n(r, "test_runs_failed") for r in rows), "test_attempts_total": sum(_n(r, "test_runs") for r in rows),
+            "edits_confirmed_total": sum(_n(r, "edits_total") for r in rows), "bash_edit_like_calls_total": sum(_n(r, "bash_edit_like_calls") for r in rows),
+            "test_fix_cycles_total": sum(_n(r, "test_fix_cycles") for r in rows), "test_fix_cycles_confirmed_edit_total": sum(_n(r, "test_fix_cycles_confirmed_edit") for r in rows),
+            "test_fix_cycles_bash_edit_only_total": sum(max(0, _n(r, "test_fix_cycles") - _n(r, "test_fix_cycles_confirmed_edit")) for r in rows if r.get("test_fix_cycles_confirmed_edit") is not None),
+            "ambiguous_sequences_total": sum(_n(r, "ambiguous_sequences") for r in rows), "rows_without_parser_v2_fields": sum(1 for r in rows if r.get("transcript_parser_version") is None),
             "cap_exceeded_runs": sum(bool(r.get("cap_exceeded")) for r in rows), "inexact_accounting_runs": sum(not r.get("cost_exact") for r in rows),
             "budget_or_stop_limited_runs": sum(1 for r in rows if r.get("stop_reason") == "budget_exhausted"),
             # Claude Code's own reported cost: a SEPARATE measurement from the gateway cost above (a client-side estimate, not measured by AIEP)
@@ -82,7 +100,7 @@ def _arm_stats(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "claude_reported_cost_runs": len(claude), "claude_reported_cost_missing_runs": len(rows) - len(claude)}
 
 
-def _pair_table(pairs: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]], seed: str, set_name: str) -> dict[str, Any]:
+def _pair_table(pairs: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]], seed: str, set_name: str, *, inference: bool = True) -> dict[str, Any]:
     cells: dict[str, list[str]] = {"both_resolved": [], "neither_resolved": [], "A_only": [], "B_only": []}
     diffs = []
     for task, (a, b) in sorted(pairs.items()):
@@ -91,12 +109,13 @@ def _pair_table(pairs: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]], s
         diffs.append(int(rb) - int(ra))
     n = len(pairs)
     bo, ao = len(cells["B_only"]), len(cells["A_only"])
-    ci = bootstrap_interval(diffs, f"{seed}|bootstrap|{set_name}")
+    ci = bootstrap_interval(diffs, f"{seed}|bootstrap|{set_name}") if inference else None
     return {"pairs": n, "cells": cells, "concordant": len(cells["both_resolved"]) + len(cells["neither_resolved"]), "discordant": ao + bo,
             "resolution_rate": {"A": (sum(_slot_outcome(a) for a, _ in pairs.values()) / n) if n else None, "B": (sum(_slot_outcome(b) for _, b in pairs.values()) / n) if n else None},
             "difference_B_minus_A": ((bo - ao) / n) if n else None, "bootstrap_95_interval": list(ci) if ci else None,
-            "mcnemar_exact_two_sided_p": mcnemar_exact_two_sided(bo, ao) if n else None,
-            "interpretation": "descriptive; with this few pairs the interval is wide and the exact test has almost no power"}
+            "mcnemar_exact_two_sided_p": mcnemar_exact_two_sided(bo, ao) if (n and inference) else None,
+            "interpretation": ("descriptive; with this few pairs the interval is wide and the exact test has almost no power" if inference
+                               else "exploratory: counts only; no p-value, interval or significance claim is computed or reported")}
 
 
 def analyze(rows: Iterable[Mapping[str, Any]], definition: Mapping[str, Any], *, tasks: Sequence[str] | None = None, repetition: int = 1) -> dict[str, Any]:
@@ -109,6 +128,7 @@ def analyze(rows: Iterable[Mapping[str, Any]], definition: Mapping[str, Any], *,
         except ResultsError as e:
             raise ValueError("the results contain a calibration row: " + str(e)) from e
     seed = definition["preregistration"]["seed"]
+    exploratory = definition.get("kind") == "exploratory_ab"
     tasks = list(tasks or [t["instance_id"] for t in definition["preregistration"]["tasks"]])
     by_slot: dict[tuple[str, str], Mapping[str, Any]] = {}
     for r in rows:
@@ -126,7 +146,7 @@ def analyze(rows: Iterable[Mapping[str, Any]], definition: Mapping[str, Any], *,
             valid_pairs[t] = (a, b)
     def split(pairs: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]]) -> dict[str, list[Mapping[str, Any]]]:
         return {"A": [a for a, _ in pairs.values()], "B": [b for _, b in pairs.values()]}
-    out: dict[str, Any] = {"label": LABEL, "experiment_id": definition["experiment_id"], "definition_sha256": definition["definition_sha256"], "tasks_scheduled": len(tasks),
+    out: dict[str, Any] = {"label": label_for(definition), "exploratory": exploratory, "experiment_id": definition["experiment_id"], "definition_sha256": definition["definition_sha256"], "tasks_scheduled": len(tasks),
                            "repetition_analysed": repetition, "rows": len(rows), "not_run_tasks": not_run}
     for name, pairs in (("as_scheduled", as_scheduled), ("valid_runs", valid_pairs)):
         sp = split(pairs)
@@ -136,7 +156,7 @@ def analyze(rows: Iterable[Mapping[str, Any]], definition: Mapping[str, Any], *,
         both = [(a, b) for a, b in pairs.values() if a.get("claude_reported_cost_usd") is not None and b.get("claude_reported_cost_usd") is not None]
         paired_claude = [_d(b["claude_reported_cost_usd"]) - _d(a["claude_reported_cost_usd"]) for a, b in both]
         diffs = [_d(r["claude_reported_cost_usd"]) - _d(r["cost_usd_computed"]) for r in (*a_rows, *b_rows) if r.get("claude_reported_cost_usd") is not None]
-        out[name] = {"outcomes": _pair_table(pairs, seed, name), "per_arm": {"A": _arm_stats(a_rows), "B": _arm_stats(b_rows)},
+        out[name] = {"outcomes": _pair_table(pairs, seed, name, inference=not exploratory), "per_arm": {"A": _arm_stats(a_rows), "B": _arm_stats(b_rows)},
                      "paired_cost_difference_B_minus_A_usd": {"mean": format(sum(paired_cost) / len(paired_cost), "f") if paired_cost else None,
                                                               "uncached_equivalent_mean": format(sum(paired_unc) / len(paired_unc), "f") if paired_unc else None},
                      "paired_claude_reported_cost_difference_B_minus_A_usd": {
@@ -153,8 +173,27 @@ def analyze(rows: Iterable[Mapping[str, Any]], definition: Mapping[str, Any], *,
                                          "by_reason": _count((r.get("invalid_reason") or ("not graded" if not r.get("graded") else "handoff rejected")) for r in excluded),
                                          "stopped_by_budget": sum(1 for r in excluded if r.get("stop_reason") == "budget_exhausted"),
                                          "inexact_accounting_in_valid_runs": sum(1 for pr in valid_pairs.values() for r in pr if not r.get("cost_exact"))}
+    def detail(r: Mapping[str, Any]) -> dict[str, Any]:
+        cyc, conf = r.get("test_fix_cycles"), r.get("test_fix_cycles_confirmed_edit")
+        return {"resolved": _slot_outcome(r), "valid": bool(r.get("valid_measurement")), "handoff_status": r.get("handoff_status"), "invalid_reason": r.get("invalid_reason"),
+                "gateway_cost_usd": r.get("cost_usd_computed"), "claude_reported_cost_usd": r.get("claude_reported_cost_usd"), "requests": r.get("requests"),
+                "test_attempts": r.get("test_runs"), "test_runs_started": r.get("test_runs_started"), "test_runs_not_started": r.get("test_runs_not_started"),
+                "test_runs_failed": r.get("test_runs_failed"), "edits_confirmed": r.get("edits_total"), "bash_edit_like_calls": r.get("bash_edit_like_calls"),
+                "test_fix_cycles": cyc, "cycles_confirmed_edit": conf, "cycles_bash_edit_only": (cyc - conf) if isinstance(cyc, int) and isinstance(conf, int) else None,
+                "ambiguous_sequences": r.get("ambiguous_sequences"), "transcript_parser_version": r.get("transcript_parser_version"), "transcript_complete": r.get("transcript_complete")}
     out["task_table"] = [{"task_id": t, "repo": a.get("repo"), "A": _slot_outcome(a), "B": _slot_outcome(b), "valid_both": t in valid_pairs, "A_status": a.get("handoff_status"),
-                          "B_status": b.get("handoff_status")} for t, (a, b) in sorted(as_scheduled.items())]
+                          "B_status": b.get("handoff_status"), "A_detail": detail(a), "B_detail": detail(b)} for t, (a, b) in sorted(as_scheduled.items())]
+    versions = _count(r.get("transcript_parser_version") for r in rows)
+    out["transcript_parser_versions"] = versions
+    out["unpaired_runs"] = [{"task_id": t["task_id"], "arm": arm} for t in not_run for arm, k in (("A", "has_A"), ("B", "has_B")) if t[k]]
+    if exploratory:
+        stage_of = {x["task_id"]: x["stage"] for x in definition["design"]["schedule"]}
+        out["stages"] = [{"stage": st["stage"], "activation": st["activation"], "tasks": list(st["tasks"]),
+                          "paired": sorted(t for t in st["tasks"] if t in as_scheduled), "valid_pairs": sorted(t for t in st["tasks"] if t in valid_pairs),
+                          "not_run": sorted(t for t in st["tasks"] if t not in as_scheduled)} for st in definition["design"]["stages"]]
+        out["limitations"] = list(definition.get("study_limitations") or [])
+        out["reporting_rules"] = list(definition.get("reporting_rules") or [])
+        _ = stage_of
     return out
 
 
@@ -173,9 +212,22 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         L += [f"## {name}", f"pairs: {o['pairs']}  concordant: {o['concordant']}  discordant: {o['discordant']}",
               f"both resolved: {len(o['cells']['both_resolved'])}  neither: {len(o['cells']['neither_resolved'])}  A only: {len(o['cells']['A_only'])}  B only: {len(o['cells']['B_only'])}",
               f"resolution rate A: {o['resolution_rate']['A']}  B: {o['resolution_rate']['B']}  difference (B - A): {o['difference_B_minus_A']}",
-              f"exact McNemar two-sided p: {o['mcnemar_exact_two_sided_p']}  bootstrap 95% interval: {o['bootstrap_95_interval']}  ({o['interpretation']})",
+              (f"({o['interpretation']})" if report.get("exploratory") else
+               f"exact McNemar two-sided p: {o['mcnemar_exact_two_sided_p']}  bootstrap 95% interval: {o['bootstrap_95_interval']}  ({o['interpretation']})"),
               f"gateway-measured cost total A: {s['per_arm']['A'].get('cost_usd_total')}  B: {s['per_arm']['B'].get('cost_usd_total')}  ratio B/A: {s['cost_ratio_B_over_A']}",
               f"Claude-reported cost total (client estimate, not measured) A: {s['per_arm']['A'].get('claude_reported_cost_usd_total')} "
               f"({s['per_arm']['A'].get('claude_reported_cost_runs', 0)} runs)  B: {s['per_arm']['B'].get('claude_reported_cost_usd_total')} ({s['per_arm']['B'].get('claude_reported_cost_runs', 0)} runs)", ""]
-    L += [f"not run: {report['not_run_tasks']}", f"exclusions from valid runs: {report['exclusions_from_valid_runs']}"]
+    L += [f"not run: {report['not_run_tasks']}", f"unpaired runs: {report.get('unpaired_runs')}", f"exclusions from valid runs: {report['exclusions_from_valid_runs']}",
+          f"transcript parser versions of the rows: {report.get('transcript_parser_versions')}", ""]
+    for st in report.get("stages", []):
+        L.append(f"stage {st['stage']} ({st['activation']}): paired {st['paired']}  valid pairs {st['valid_pairs']}  not run {st['not_run']}")
+    L.append("")
+    for r in report.get("task_table", []):
+        for arm in ("A", "B"):
+            d = r[f"{arm}_detail"]
+            L.append(f"{r['task_id']} {arm}: resolved={d['resolved']} valid={d['valid']} gateway=${d['gateway_cost_usd']} claude-reported=${d['claude_reported_cost_usd']} attempts={d['test_attempts']} "
+                     f"started={d['test_runs_started']} failed={d['test_runs_failed']} edits={d['edits_confirmed']} bash-edit-like={d['bash_edit_like_calls']} cycles={d['test_fix_cycles']} "
+                     f"(confirmed {d['cycles_confirmed_edit']}, bash-only {d['cycles_bash_edit_only']}) ambiguous={d['ambiguous_sequences']} parser=v{d['transcript_parser_version']}")
+    if report.get("limitations"):
+        L += ["", "Limitations:"] + [f"- {x}" for x in report["limitations"]]
     return "\n".join(L) + "\n"

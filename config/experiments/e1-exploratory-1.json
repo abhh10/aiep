@@ -1,0 +1,961 @@
+{
+  "analysis": {
+    "cost": "gateway-measured cost and Claude-reported cost are reported as separate measurements, never merged; runs with inexact accounting are flagged",
+    "invalid_handling": "incomplete, invalid, censored, budget-limited and unpaired runs and any task not run are always reported next to the results",
+    "kind": "descriptive only",
+    "no_inference": "no p-values, confidence intervals or claims of statistical significance are reported",
+    "paired_report": "per task and arm: resolved or not, FAIL_TO_PASS and PASS_TO_PASS, cost, requests, test attempts, started and completed runs, failures, edits, confirmed and Bash-edit-only cycles; the 2x2 table of both resolved / neither / A only / B only is shown as COUNTS",
+    "sets": {
+      "as_scheduled": "every task whose two scheduled runs both HAVE a result row; a run that is invalid, censored, rejected, or ungradable counts as UNRESOLVED",
+      "valid_runs": "pairs where BOTH runs are valid, passed the handoff and were graded without harness errors"
+    }
+  },
+  "arms": {
+    "A": "Basic workflow: investigate, fix, stop. Claude may run tests on its own.",
+    "B": "Test-and-fix workflow: run relevant existing tests, analyse failures, revise, repeat, at most 5 test-fix cycles."
+  },
+  "claim_scope": "EXPLORATORY FEASIBILITY STUDY (E1), budget-constrained: a few paired tasks, one run per arm per task. It tests the pipeline and shows cost and behaviour for both workflows on a few tasks. It is NOT a statistically powered effectiveness test, supports no claim that one workflow is better than the other, and reports no significance tests.",
+  "claude_cli": {
+    "platform": "linux-x64",
+    "sha256": "a982d38030b97e750848add2cbb2df6d9a70d5544a22ca9b216a349ba25865e8",
+    "version": "2.1.328"
+  },
+  "dataset": {
+    "repo_id": "SWE-bench/SWE-bench_Lite",
+    "revision": "b0dde1093fe417d83b7184254edf8199c1f0dff5",
+    "split": "test"
+  },
+  "definition_sha256": "d5a3bae109e62a9c69d92fbcf92db1bd00842cd54eceab862ce3ce94b51d672f",
+  "derived_from": {
+    "changes": [
+      "a subset of v2's selected tasks in two stages (matplotlib and scikit-learn excluded)",
+      "staged, per-stage-balanced schedule",
+      "limits gain a definition-held overshoot allowance, a protected reserve and pair-atomic budget reservation",
+      "exploratory claim scope with documented limitations and reporting rules",
+      "two new stop conditions",
+      "metrics pinned to transcript parser version 2",
+      "kind exploratory_ab"
+    ],
+    "definition_sha256": "590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161",
+    "experiment_id": "m3-pilot-v2",
+    "reason": "The total Anthropic budget is $5 of prepaid credit that cannot be increased, so the 8-task, 16-run pilot is replaced by a smaller, staged, budget-constrained exploratory study over a subset of that pilot's pre-registered tasks (the matplotlib and scikit-learn repositories are excluded). m3-pilot-v1 and m3-pilot-v2 are preserved unchanged and are not run.",
+    "unchanged": [
+      "seed",
+      "prompt set v2 and its hashes",
+      "model, Claude binary, dataset revision",
+      "arm definitions and the 5-cycle cap in B",
+      "pair gap and wall clock",
+      "calibration/scored separation"
+    ]
+  },
+  "design": {
+    "arms": [
+      "A",
+      "B"
+    ],
+    "order": "stages run in order; within a stage the blocks are in seeded order and the first arm is balanced (rank by sha256(seed|first-arm|id); even ranks A first); both arms of a task run back to back inside one block, separated by pair_gap_s",
+    "pair_gap_note": "longer than the 5-minute prompt-cache lifetime, so the second arm of a pair does not start inside the first arm's cache window; cache-read tokens are recorded and analysed anyway (an uncached-equivalent cost is reported)",
+    "pair_gap_s": 600,
+    "repetitions": 1,
+    "schedule": [
+      {
+        "arm": "A",
+        "arm_position": 1,
+        "order_index": 1,
+        "pair_id": "e1-exploratory-1:sympy__sympy-18621:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/sympy__sympy-18621/A/r1",
+        "stage": 1,
+        "task_id": "sympy__sympy-18621"
+      },
+      {
+        "arm": "B",
+        "arm_position": 2,
+        "order_index": 2,
+        "pair_id": "e1-exploratory-1:sympy__sympy-18621:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/sympy__sympy-18621/B/r1",
+        "stage": 1,
+        "task_id": "sympy__sympy-18621"
+      },
+      {
+        "arm": "B",
+        "arm_position": 1,
+        "order_index": 3,
+        "pair_id": "e1-exploratory-1:django__django-13933:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/django__django-13933/B/r1",
+        "stage": 1,
+        "task_id": "django__django-13933"
+      },
+      {
+        "arm": "A",
+        "arm_position": 2,
+        "order_index": 4,
+        "pair_id": "e1-exploratory-1:django__django-13933:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/django__django-13933/A/r1",
+        "stage": 1,
+        "task_id": "django__django-13933"
+      },
+      {
+        "arm": "B",
+        "arm_position": 1,
+        "order_index": 5,
+        "pair_id": "e1-exploratory-1:django__django-15851:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/django__django-15851/B/r1",
+        "stage": 1,
+        "task_id": "django__django-15851"
+      },
+      {
+        "arm": "A",
+        "arm_position": 2,
+        "order_index": 6,
+        "pair_id": "e1-exploratory-1:django__django-15851:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/django__django-15851/A/r1",
+        "stage": 1,
+        "task_id": "django__django-15851"
+      },
+      {
+        "arm": "A",
+        "arm_position": 1,
+        "order_index": 7,
+        "pair_id": "e1-exploratory-1:sympy__sympy-22714:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/sympy__sympy-22714/A/r1",
+        "stage": 1,
+        "task_id": "sympy__sympy-22714"
+      },
+      {
+        "arm": "B",
+        "arm_position": 2,
+        "order_index": 8,
+        "pair_id": "e1-exploratory-1:sympy__sympy-22714:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/sympy__sympy-22714/B/r1",
+        "stage": 1,
+        "task_id": "sympy__sympy-22714"
+      },
+      {
+        "arm": "A",
+        "arm_position": 1,
+        "order_index": 9,
+        "pair_id": "e1-exploratory-1:sphinx-doc__sphinx-10325:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/sphinx-doc__sphinx-10325/A/r1",
+        "stage": 2,
+        "task_id": "sphinx-doc__sphinx-10325"
+      },
+      {
+        "arm": "B",
+        "arm_position": 2,
+        "order_index": 10,
+        "pair_id": "e1-exploratory-1:sphinx-doc__sphinx-10325:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/sphinx-doc__sphinx-10325/B/r1",
+        "stage": 2,
+        "task_id": "sphinx-doc__sphinx-10325"
+      },
+      {
+        "arm": "B",
+        "arm_position": 1,
+        "order_index": 11,
+        "pair_id": "e1-exploratory-1:psf__requests-863:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/psf__requests-863/B/r1",
+        "stage": 2,
+        "task_id": "psf__requests-863"
+      },
+      {
+        "arm": "A",
+        "arm_position": 2,
+        "order_index": 12,
+        "pair_id": "e1-exploratory-1:psf__requests-863:r1",
+        "rep": 1,
+        "slot_id": "e1-exploratory-1/psf__requests-863/A/r1",
+        "stage": 2,
+        "task_id": "psf__requests-863"
+      }
+    ],
+    "stages": [
+      {
+        "activation": "required",
+        "activation_rule": "always: stage 1 is the study",
+        "first_arm": {
+          "django__django-13933": "B",
+          "django__django-15851": "B",
+          "sympy__sympy-18621": "A",
+          "sympy__sympy-22714": "A"
+        },
+        "min_repos": 2,
+        "stage": 1,
+        "tasks": [
+          "sympy__sympy-18621",
+          "django__django-13933",
+          "django__django-15851",
+          "sympy__sympy-22714"
+        ]
+      },
+      {
+        "activation": "conditional",
+        "activation_rule": "stage 2 is activated only by an explicit operator decision, never automatically, and only if (a) the pair-atomic budget reservation funds its pairs from the remaining experiment cap measured in LEDGER COST, (b) its images, seeds and controls are prepared, and (c) its conditional-task checks pass. It never depends on how A or B performed.",
+        "conditional_tasks": [
+          {
+            "condition_id": "isolated_environment_compatible",
+            "decided_before_any_agent_run": true,
+            "decision_record": {
+              "fields": [
+                "compatible",
+                "evidence",
+                "operator_decision",
+                "decided_by",
+                "decided_at"
+              ],
+              "if_incompatible": "the pre-registered replacement rule applies: the replacement takes this task's block position and arm order",
+              "meaning": {
+                "compatible": "true or false: whether the task's tests run correctly in the isolated, no-network environment",
+                "decided_at": "UTC timestamp",
+                "decided_by": "the operator",
+                "evidence": "what was inspected (test files, setup, control results); never an A or B outcome",
+                "operator_decision": "include when compatible, replace when not"
+              },
+              "required": true,
+              "required_before": "before any agent run on this task (enforced by the batch)",
+              "status": "pending",
+              "storage": "the batch state, decisions[task] (immutable once written; recorded with m3_batch.record_compatibility_decision); this file is never edited",
+              "uses_ab_outcomes": false
+            },
+            "depends_on_ab_outcomes": false,
+            "on_failure": "replace_from_ordered_list",
+            "replacement": "the first task of preregistration.replacements that is unused, passes the same eligibility rules and keeps at most 2 tasks per repository and at least 4 repositories; it takes the excluded task's block position and arm order (B first), so the stage stays balanced",
+            "rule": "psf__requests-863 stays in stage 2 only if its test requirements are compatible with the isolated agent environment (no network). This is decided by an inspection of the task's tests and test setup, recorded in the decision record BEFORE any agent run on the task (the batch halts with compatibility_decision_missing otherwise); it never looks at an A or B outcome.",
+            "task": "psf__requests-863"
+          }
+        ],
+        "first_arm": {
+          "psf__requests-863": "B",
+          "sphinx-doc__sphinx-10325": "A"
+        },
+        "min_repos": 2,
+        "stage": 2,
+        "tasks": [
+          "sphinx-doc__sphinx-10325",
+          "psf__requests-863"
+        ]
+      }
+    ]
+  },
+  "experiment_id": "e1-exploratory-1",
+  "financial_notice": "The gateway budget is a SOFT limit, not a guaranteed maximum liability. Usage is known only after a response is metered; an interrupted request is charged at an upper bound (input as reported plus max_tokens output, about $0.64 of output alone at max_tokens 64000) that can exceed the budget by itself; a request killed before it is metered may be billed and never recorded. The pilot allows one concurrent request per agent and stops on incomplete accounting. E1 reserves, before each pair starts, the cost of BOTH arms (budget plus the provisional overshoot allowance per run) from the remaining cap; a pair that cannot be funded is never started, and the study stops early with an explicit status. The workspace spend limit and prepaid balance, not this definition, are the only hard limits.",
+  "kind": "exploratory_ab",
+  "limits": {
+    "b_max_test_fix_cycles": 5,
+    "budget_planning_note": "budget_usd_per_run and max_total_computed_usd are deliberately UNSET: they require the final authorization and a fresh billing check in the Console (the earlier balance must not be assumed). The cap is the experiment's computed ledger cost for scored runs only; it is never raised silently.",
+    "budget_usd_per_run": null,
+    "calibration_spend_note": "two calibration runs, from the gateway ledgers (computed, not the Console); excluded from the scored cap",
+    "calibration_spend_observed_usd": "0.0906",
+    "client_budget_margin": "1.10",
+    "disk": {
+      "hard_stop_gib": 12,
+      "start_gate_gib": 16
+    },
+    "gateway_max_concurrent": 1,
+    "max_total_computed_usd": null,
+    "overshoot_allowance_status": "PROVISIONAL planning allowance per run for a request already in flight when the gateway budget is reached. It is supported by the two SymPy calibrations (largest single request about $0.022) but not proven for other repositories, and it is not a guaranteed maximum. Each run's actual overshoot is recorded, and a run that exceeds the allowance halts the study.",
+    "overshoot_allowance_usd": "0.30",
+    "pair_atomic_reservation": true,
+    "protected_reserve_usd": "0.50",
+    "same_for_both_arms": "one limits block: nothing here is keyed by arm",
+    "wall_clock_s": 1800
+  },
+  "metrics": {
+    "definitions": {
+      "cap_exceeded": "test_fix_cycles > 5",
+      "compliance_B": "a runner started AND (no failed run OR at least one test-fix cycle) AND test_fix_cycles <= 5",
+      "edit": "a confirmed Edit/Write tool call, or a heuristic Bash edit-like command (reported separately; it shows a file-writing command ran, not that a file changed)",
+      "test_attempt": "a Bash tool call whose command, parsed as shell with here-documents set aside, RUNS a test runner according to test_command_spec (test_runs)",
+      "test_fix_cycle": "a runner started and completed with failures, then an edit, then a later runner started (conservative); unclear sequences are listed as ambiguous and not counted",
+      "test_run_states": "not_started (the runner never started, e.g. a missing module), completed_failed, completed_passed, started_incomplete, unknown; a missing runner is never a failed suite",
+      "test_usage": "test_runs >= 1 (attempted) and test_usage_started (a runner actually started), in BOTH arms; in A it is spontaneous"
+    },
+    "primary": "issue resolved (harness verdict: all FAIL_TO_PASS pass and all PASS_TO_PASS maintained), per task and arm",
+    "secondary": [
+      "wall seconds",
+      "gateway-computed cost (and uncached-equivalent cost)",
+      "tokens by field",
+      "requests and request outcomes",
+      "turns",
+      "test runs",
+      "test-fix cycles",
+      "compliance"
+    ],
+    "test_command_spec": {
+      "exclusion_arguments": [
+        "--version",
+        "--help",
+        "-h",
+        "--collect-only",
+        "--co"
+      ],
+      "executables": [
+        "pytest",
+        "py.test",
+        "tox",
+        "nosetests",
+        "nose2",
+        "runtests.py",
+        "bin/test (sympy)",
+        "django-admin test",
+        "setup.py test|pytest",
+        "manage.py test"
+      ],
+      "make_targets": [
+        "test",
+        "tests",
+        "check"
+      ],
+      "method": "the Bash command is split into simple commands at && || ; | & newlines and parentheses (quotes respected; here-documents are set aside); for each simple command leading VAR=value assignments and the wrappers below are skipped and the EXECUTABLE (basename) and its first arguments decide. A runner word that is only an argument of another program (grep, echo, cat, pip, git ...) never counts. bash -c / sh -c strings are parsed the same way.",
+      "not_counted": [
+        "running a test file directly with python (python tests/test_x.py): this is how reproduction scripts look too",
+        "listing, reading or searching test files",
+        "installing a test runner",
+        "pytest --version / --help / --collect-only"
+      ],
+      "python_c_code_patterns": [
+        "\\bpytest\\.main\\(",
+        "\\bunittest\\.main\\(",
+        "\\.test\\("
+      ],
+      "python_modules": [
+        "pytest",
+        "py.test",
+        "unittest",
+        "django test",
+        "nose",
+        "nose2"
+      ],
+      "version": 2,
+      "wrappers": [
+        "env",
+        "sudo",
+        "time",
+        "nohup",
+        "timeout <N>",
+        "command",
+        "exec",
+        "xvfb-run",
+        "coverage run",
+        "conda|mamba|micromamba run",
+        "uv|poetry|pipenv|pdm|hatch run",
+        "bash|sh|zsh -c"
+      ]
+    },
+    "transcript_parser_version": 2
+  },
+  "model": "claude-sonnet-5-5",
+  "preregistration": {
+    "control_requirements": {
+      "gold": "harness verdict resolved; every FAIL_TO_PASS passes; every PASS_TO_PASS is maintained; patch applied; 0 errors, 0 infrastructure failures",
+      "noop": "harness verdict unresolved; 0 of the FAIL_TO_PASS tests pass; patch applied; 0 errors, 0 infrastructure failures",
+      "noop_patch": "adds one new text file (AIEP_NOOP_CONTROL.txt): applies to any repository and changes no behaviour"
+    },
+    "replacement_rules": [
+      "a task is replaced ONLY if it fails its gold or no-op control, its image cannot be pinned or fails the preparation gate, or (for a task with a conditional rule) its recorded compatibility decision is 'incompatible', always BEFORE any agent run on it; never because of an agent outcome",
+      "the replacement is the first task in the replacement order that is unused, passes the same eligibility rules and keeps at most 2 tasks per repository and at least 4 repositories overall; matplotlib and scikit-learn are never used",
+      "the replacement takes the replaced task's block position AND its arm order (so each stage stays balanced); it is recorded in the batch state, never by editing this file",
+      "if no replacement is allowed the batch stops for review (control_replacement_exhausted)"
+    ],
+    "replacements": [
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 6,
+          "issue_chars": 449,
+          "pass_to_pass": 1
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13043:latest",
+        "instance_id": "sympy__sympy-13043",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 6,
+          "issue_chars": 1509,
+          "pass_to_pass": 2
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-22005:latest",
+        "instance_id": "sympy__sympy-22005",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 466,
+          "pass_to_pass": 32
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-20212:latest",
+        "instance_id": "sympy__sympy-20212",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 2,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 3430,
+          "pass_to_pass": 19
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-17630:latest",
+        "instance_id": "sympy__sympy-17630",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 2,
+          "gold_patch_changed_lines": 9,
+          "issue_chars": 1100,
+          "pass_to_pass": 18
+        },
+        "image": "swebench/sweb.eval.x86_64.django_1776_django-16408:latest",
+        "instance_id": "django__django-16408",
+        "repo": "django/django"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 61,
+          "issue_chars": 626,
+          "pass_to_pass": 18
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-19254:latest",
+        "instance_id": "sympy__sympy-19254",
+        "repo": "sympy/sympy"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 2,
+          "gold_patch_changed_lines": 3,
+          "issue_chars": 1698,
+          "pass_to_pass": 6
+        },
+        "image": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-6506:latest",
+        "instance_id": "pylint-dev__pylint-6506",
+        "repo": "pylint-dev/pylint"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 11,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 8443,
+          "pass_to_pass": 0
+        },
+        "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7168:latest",
+        "instance_id": "pytest-dev__pytest-7168",
+        "repo": "pytest-dev/pytest"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 2,
+          "gold_patch_changed_lines": 54,
+          "issue_chars": 1327,
+          "pass_to_pass": 15
+        },
+        "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7686:latest",
+        "instance_id": "sphinx-doc__sphinx-7686",
+        "repo": "sphinx-doc/sphinx"
+      },
+      {
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 7,
+          "issue_chars": 731,
+          "pass_to_pass": 24
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-20442:latest",
+        "instance_id": "sympy__sympy-20442",
+        "repo": "sympy/sympy"
+      }
+    ],
+    "seed": "aiep-m3-pilot-v1-preregistration",
+    "seed_note": "chosen by the implementer before any run, with no outcome information; every derived quantity is a SHA-256 of seed|purpose|key",
+    "selection": {
+      "eligibility_rules": [
+        {
+          "applies_to": "selected tasks and replacements",
+          "id": "repository_not_excluded",
+          "rule": "the repository is not in excluded_repos",
+          "status": "applied"
+        },
+        {
+          "applies_to": "selected tasks and replacements",
+          "id": "image_size_and_seed_fit",
+          "rule": "checked when a task is PREPARED, never earlier and never from outcomes: the measured image size must fit the disk start gate and the seed archive the archive limit; a task that fails is replaced under the pre-registered replacement rule. This definition makes no size claim about any task or replacement.",
+          "status": "pending_preparation_gate"
+        }
+      ],
+      "evidence": {
+        "replacements": [
+          {
+            "decision": "included",
+            "evidence": "repository sympy/sympy is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "sympy__sympy-13043",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sympy/sympy",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository sympy/sympy is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "sympy__sympy-22005",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sympy/sympy",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository sympy/sympy is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "sympy__sympy-20212",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sympy/sympy",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository sympy/sympy is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "sympy__sympy-17630",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sympy/sympy",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository django/django is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "django__django-16408",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "django/django",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository sympy/sympy is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "sympy__sympy-19254",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sympy/sympy",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository pylint-dev/pylint is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "pylint-dev__pylint-6506",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "pylint-dev/pylint",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "excluded",
+            "evidence": "repository matplotlib/matplotlib is in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "matplotlib__matplotlib-24265",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "matplotlib/matplotlib",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository pytest-dev/pytest is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "pytest-dev__pytest-7168",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "pytest-dev/pytest",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository sphinx-doc/sphinx is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "sphinx-doc__sphinx-7686",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sphinx-doc/sphinx",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository sympy/sympy is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "sympy__sympy-20442",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sympy/sympy",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "excluded",
+            "evidence": "repository matplotlib/matplotlib is in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.replacements",
+            "instance_id": "matplotlib__matplotlib-18869",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "matplotlib/matplotlib",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          }
+        ],
+        "source": "m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161)",
+        "stage_assignment": "tasks were split into stages by operator declaration before any agent run (E1_STAGES); the split uses no outcome and no model run, and each stage's first arms are derived from the seed",
+        "tasks": [
+          {
+            "decision": "included",
+            "evidence": "repository sympy/sympy is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.tasks",
+            "instance_id": "sympy__sympy-22714",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sympy/sympy",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository sphinx-doc/sphinx is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.tasks",
+            "instance_id": "sphinx-doc__sphinx-10325",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sphinx-doc/sphinx",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "excluded",
+            "evidence": "repository scikit-learn/scikit-learn is in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.tasks",
+            "instance_id": "scikit-learn__scikit-learn-12471",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "scikit-learn/scikit-learn",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository django/django is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.tasks",
+            "instance_id": "django__django-15851",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "django/django",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository sympy/sympy is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.tasks",
+            "instance_id": "sympy__sympy-18621",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "sympy/sympy",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository psf/requests is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.tasks",
+            "instance_id": "psf__requests-863",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "psf/requests",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "excluded",
+            "evidence": "repository matplotlib/matplotlib is in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.tasks",
+            "instance_id": "matplotlib__matplotlib-26020",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "matplotlib/matplotlib",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          },
+          {
+            "decision": "included",
+            "evidence": "repository django/django is not in excluded_repos; listed in m3-pilot-v2 (definition sha256 590536ec64024e8216e1453f51367f931b154178745fa1adde4c951cae60c161) preregistration.tasks",
+            "instance_id": "django__django-13933",
+            "pending_gates": [
+              "image_size_and_seed_fit"
+            ],
+            "repo": "django/django",
+            "rules_applied": [
+              "repository_not_excluded"
+            ]
+          }
+        ]
+      },
+      "exclude": [
+        "pytest-dev__pytest-5227"
+      ],
+      "excluded_repos": [
+        "matplotlib/matplotlib",
+        "scikit-learn/scikit-learn"
+      ],
+      "max_per_repo": 2,
+      "min_repos": 4,
+      "n_tasks": 6,
+      "pool_sha256": "e13dc8c27052d4ab9bf018a4bda8ab247525a284885be0ea555180e409e106ee",
+      "pool_size": 138,
+      "rule": "The selected tasks are exactly those of m3-pilot-v2's pre-registered selection that pass the eligibility rules below; the replacement pool is the m3-pilot-v2 replacement list filtered by the SAME rules. They are split into two stages (stage_assignment). The choice uses no outcome and no model run.",
+      "screen": {
+        "max_pass_to_pass": 60,
+        "min_fail_to_pass": 1,
+        "pass_to_pass_ids": "every id must match its repository's id format (task_screening.is_well_formed); unverifiable ids exclude the task"
+      }
+    },
+    "tasks": [
+      {
+        "base_commit": "b17ef6effe278d5b861d65896cc53442a6370d8f",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 2087,
+          "pass_to_pass": 15
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-18621:latest",
+        "image_id": null,
+        "instance_id": "sympy__sympy-18621",
+        "pin_status": "unpulled",
+        "repo": "sympy/sympy"
+      },
+      {
+        "base_commit": "42e8cf47c7ee2db238bf91197ea398126c546741",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 6,
+          "issue_chars": 1207,
+          "pass_to_pass": 19
+        },
+        "image": "swebench/sweb.eval.x86_64.django_1776_django-13933:latest",
+        "image_id": null,
+        "instance_id": "django__django-13933",
+        "pin_status": "unpulled",
+        "repo": "django/django"
+      },
+      {
+        "base_commit": "b4817d20b9e55df30be0b1b2ca8c8bb6d61aab07",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 632,
+          "pass_to_pass": 8
+        },
+        "image": "swebench/sweb.eval.x86_64.django_1776_django-15851:latest",
+        "image_id": null,
+        "instance_id": "django__django-15851",
+        "pin_status": "unpulled",
+        "repo": "django/django"
+      },
+      {
+        "base_commit": "3ff4717b6aef6086e78f01cdfa06f64ae23aed7e",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 2,
+          "issue_chars": 1660,
+          "pass_to_pass": 11
+        },
+        "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-22714:latest",
+        "image_id": null,
+        "instance_id": "sympy__sympy-22714",
+        "pin_status": "unpulled",
+        "repo": "sympy/sympy"
+      },
+      {
+        "base_commit": "7bdc11e87c7d86dcc2a087eccb7a7c129a473415",
+        "covariates": {
+          "fail_to_pass": 1,
+          "gold_patch_changed_lines": 12,
+          "issue_chars": 1132,
+          "pass_to_pass": 5
+        },
+        "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10325:latest",
+        "image_id": null,
+        "instance_id": "sphinx-doc__sphinx-10325",
+        "pin_status": "unpulled",
+        "repo": "sphinx-doc/sphinx"
+      },
+      {
+        "base_commit": "a0df2cbb10419037d11d04352b3175405ab52941",
+        "covariates": {
+          "fail_to_pass": 4,
+          "gold_patch_changed_lines": 6,
+          "issue_chars": 805,
+          "pass_to_pass": 60
+        },
+        "image": "swebench/sweb.eval.x86_64.psf_1776_requests-863:latest",
+        "image_id": null,
+        "instance_id": "psf__requests-863",
+        "pin_status": "unpulled",
+        "repo": "psf/requests"
+      }
+    ]
+  },
+  "prompt_set": {
+    "change_note": "v2 changes ONLY Config B: it adds an explicit maximum of 5 test-fix cycles. The template and Config A are byte-identical to the original set (config/workflow_prompts.json), whose B prompt (f7ad0072...) is unchanged and retired from this experiment.",
+    "path": "config/workflow_prompts_v2.json",
+    "sha256": {
+      "A": "5e44cde50fea6d6c70cc65c0c97043a7c8fe9357d9468b4492305c0db4d64082",
+      "B": "cd6fbb95384237c2dcc399d61456ca92d746242384792f81c57217596aeb2d27",
+      "template": "86571bc70d453965dfec954dae6c2e3a073bf61ddbdc2656bc7f5667846d7158"
+    }
+  },
+  "reporting_rules": [
+    "report this as an exploratory feasibility study, never as a test of effectiveness; show counts and per-task results, not significance",
+    "the transcripts of the first two scored pairs (every run) are inspected manually before the results are relied on, and any parser misclassification is reported",
+    "report incomplete, invalid, censored, budget-limited and unpaired runs and every task or stage not run, with the reason",
+    "report the early stop and its reason when the budget ended the study; the stopping rule depends on ledger cost, never on outcomes",
+    "report gateway-measured cost and Claude-reported cost separately",
+    "disclose the two calibration runs (excluded) and that no prompt changed after them"
+  ],
+  "research_question": "Does prescribing an iterative test-and-fix workflow improve Claude Code's software issue-resolution performance, and at what additional cost?",
+  "schema": 1,
+  "status": "draft",
+  "stop_conditions": [
+    {
+      "action": "halt",
+      "id": "accounting_incomplete",
+      "rule": "any run whose gateway ledger has a started request with no finishing line, an unreadable ledger, unparseable lines or a metering failure: halt the batch for review (usage may have been billed that is not recorded)"
+    },
+    {
+      "action": "halt",
+      "id": "financial_exposure_uncertain",
+      "rule": "a run whose usage is not exact because a request was cut off and charged at the max_tokens upper bound: halt at once (the cost is an upper-bound estimate and the soft budget may have been exceeded)"
+    },
+    {
+      "action": "halt",
+      "id": "handoff_integrity_failure",
+      "rule": "a run whose handoff is rejected for a deterministic setup or integrity reason (seed, base commit, image, prompts, binary, flags, identity, artifacts, any unclassified check): halt at once, because it would repeat on every run. Agent-behaviour rejections (timeout, non-zero exit, no or non-applying patch, truncated output) do not halt"
+    },
+    {
+      "action": "halt",
+      "id": "disk_hard_stop",
+      "rule": "free disk below 12 GiB at any check"
+    },
+    {
+      "action": "halt",
+      "id": "disk_start_gate",
+      "rule": "a block does not start below the 16 GiB start gate (the gate is never lowered for the experiment)"
+    },
+    {
+      "action": "halt",
+      "id": "grading_invalid",
+      "rule": "a grading run that is not valid (harness error, infrastructure failure, hard stop, incomplete report) halts the batch for diagnosis; it is never read as a model failure"
+    },
+    {
+      "action": "halt",
+      "id": "task_not_prepared",
+      "rule": "a block cannot start until its image, seed and identity are pinned and the controls ran (each needs its own approval)"
+    },
+    {
+      "action": "halt",
+      "id": "cumulative_cost_cap",
+      "rule": "cumulative gateway-computed cost plus the estimated exposure of the next run would exceed max_total_computed_usd"
+    },
+    {
+      "action": "halt",
+      "id": "hidden_data_leak",
+      "rule": "the handoff scan finds hidden test ids or patch lines in an agent's input"
+    },
+    {
+      "action": "halt",
+      "id": "control_replacement_exhausted",
+      "rule": "a task failed its controls and no pre-registered replacement is allowed"
+    },
+    {
+      "action": "halt",
+      "id": "consecutive_invalid_runs",
+      "n": 2,
+      "rule": "the policy for TRANSIENT infrastructure failures: 2 consecutive runs rejected for infrastructure reasons (proxy died, gateway died or unreachable, lease lost, lifecycle failure, attachment failure) halt the batch; any other run resets the count"
+    },
+    {
+      "action": "halt",
+      "id": "orchestrator_error",
+      "rule": "any unexpected exception in the batch: halt; resume only after review"
+    },
+    {
+      "action": "stop_early",
+      "id": "pair_budget_unfunded",
+      "rule": "the next pair cannot be funded from the remaining cap (ledger cost so far plus the reservation for both arms would exceed max_total_computed_usd): the study ends early and cleanly; remaining pairs are reported as not run"
+    },
+    {
+      "action": "halt",
+      "id": "compatibility_decision_missing",
+      "rule": "a conditional task is about to start and its compatibility decision record is missing: nothing is prepared or run until the operator records the decision (before any agent run); an incompatible decision replaces the task under the pre-registered rule"
+    },
+    {
+      "action": "halt",
+      "id": "overshoot_allowance_exceeded",
+      "rule": "a run's ledger cost exceeded its gateway budget by more than overshoot_allowance_usd: the planning assumption is false, so the study halts for review before any further pair"
+    }
+  ],
+  "study_limitations": [
+    "single repetition per arm per task: run-to-run variation of the model is not measured",
+    "heterogeneous tasks and a very small sample: no result generalises beyond these tasks",
+    "the tasks are a convenience subset of m3-pilot-v2's tasks (repositories excluded by rule; image size and seed fit are checked only when a task is prepared), chosen to fit a $5 budget; they may be easier or harder than typical SWE-bench tasks",
+    "possible ceiling effects: a task that A already solves in a few requests leaves B no room to help",
+    "Config A may run tests spontaneously (measured as test_usage), which narrows the contrast",
+    "prompt-cache and order effects: the second arm of a pair starts after a 600 s gap, longer than the measured 5-minute cache lifetime, and the arm order is balanced within each stage",
+    "transcript metrics come from parser version 2, which is heuristic for Bash edits and per-call output attribution (see the transcript module's limitations)",
+    "the study may stop early because of the budget; completed pairs are then fewer than planned"
+  ]
+}

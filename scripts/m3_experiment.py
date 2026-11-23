@@ -16,19 +16,34 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from aiep.experiment_build import DEFAULT_ID, DEFAULT_SEED, build_definition, load_records  # noqa: E402
+from aiep.experiment_build import DEFAULT_ID, DEFAULT_SEED, E1_ID, build_definition, build_exploratory_definition, load_records  # noqa: E402
 from aiep.experiment_def import DEFAULT_DEFINITION, ExperimentError, load_experiment  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("command", choices=["build", "validate", "plan"])
+    ap.add_argument("command", choices=["build", "build-e1", "validate", "plan"])
     ap.add_argument("--seed", default=DEFAULT_SEED)
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--experiment-id", default=DEFAULT_ID, help="the id of the definition to build (written to config/experiments/<id>.json)")
     ap.add_argument("--definition", type=Path, default=None, help="validate/plan this file (default: the current definition)")
     args = ap.parse_args(argv)
     target = args.definition or ROOT / DEFAULT_DEFINITION
+    if args.command == "build-e1":  # the E1 DRAFT, derived offline from the preserved m3-pilot-v2 file (read-only); writes only config/experiments/<id>.json and only with --write
+        v2 = json.loads((ROOT / "config" / "experiments" / "m3-pilot-v2.json").read_text())
+        eid = args.experiment_id if args.experiment_id != DEFAULT_ID else E1_ID
+        doc = build_exploratory_definition(v2, experiment_id=eid)
+        target = ROOT / "config" / "experiments" / f"{eid}.json"
+        text = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+        if args.write:
+            if target.exists():
+                print(f"refusing to overwrite {target}: a pre-registered definition is never replaced", file=sys.stderr)
+                return 2
+            target.write_text(text)
+            print(f"wrote {target} (DRAFT, budgets unset) sha256={doc['definition_sha256']}")
+        else:
+            print(text)
+        return 0
     if args.command == "build":
         doc = build_definition(load_records(ROOT), ROOT, seed=args.seed, experiment_id=args.experiment_id)
         target = ROOT / "config" / "experiments" / f"{args.experiment_id}.json"
