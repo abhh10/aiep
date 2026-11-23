@@ -9,7 +9,8 @@ import pytest
 from aiep import analysis
 from aiep import m3_batch as mb
 from aiep.experiment_build import E1_ID, E1_STAGES, build_exploratory_definition
-from aiep.experiment_def import (EXPLORATORY_CLAIM_SCOPE, build_staged_schedule, definition_hash, first_arm_assignment, stage_first_arms, validate_definition)
+from aiep.experiment_def import (EXPLORATORY_CLAIM_SCOPE, ExperimentError, build_staged_schedule, definition_hash, first_arm_assignment, guaranteed_reservation_usd, require_locked, stage_first_arms,
+                                 validate_definition)
 from aiep.transcript import PARSER_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,12 +39,37 @@ def problems(d):
     return validate_definition(d, root=ROOT)
 
 
+APPROVED_BUDGET, APPROVED_CAP = "0.18", "3.84"  # the operator-approved E1 budgets; the BUILDER's template keeps them null (nothing is authorized by the template)
+
+
+def committed_e1_expected():
+    """What the committed E1 file must be: the builder's draft template with ONLY the approved budgets applied, the file's own budget_planning_note (its content is asserted separately) and the
+    definition hash recomputed with the canonical implementation. No hash is hard-coded here, so the test cannot go stale when the note or budgets are revised through the proper rehash."""
+    d = fresh()
+    d["limits"]["budget_usd_per_run"], d["limits"]["max_total_computed_usd"] = APPROVED_BUDGET, APPROVED_CAP
+    d["limits"]["budget_planning_note"] = json.loads(E1_FILE.read_text())["limits"]["budget_planning_note"]
+    return rehash(d)
+
+
 # ---------------------------------------------------------------- the definition
-def test_the_committed_e1_file_is_the_builders_draft_and_validates():
+def test_the_committed_e1_file_is_the_builders_draft_plus_the_approved_budgets_and_validates():
     on_disk = json.loads(E1_FILE.read_text())
-    assert on_disk == fresh() and problems(on_disk) == []
-    assert on_disk["status"] == "draft" and on_disk["kind"] == "exploratory_ab" and on_disk["experiment_id"] == E1_ID != V2["experiment_id"]
-    assert on_disk["limits"]["budget_usd_per_run"] is None and on_disk["limits"]["max_total_computed_usd"] is None  # not locked: budgets need authorization and a billing check
+    assert on_disk == committed_e1_expected() and problems(on_disk) == []
+    assert on_disk["definition_sha256"] == definition_hash(on_disk)
+    assert on_disk["status"] == "draft" and on_disk["kind"] == "exploratory_ab" and on_disk["experiment_id"] == E1_ID != V2["experiment_id"]  # budgets set, NOT locked
+    assert on_disk["limits"]["budget_usd_per_run"] == APPROVED_BUDGET and on_disk["limits"]["max_total_computed_usd"] == APPROVED_CAP
+    assert fresh()["limits"]["budget_usd_per_run"] is None and fresh()["limits"]["max_total_computed_usd"] is None  # the builder's template stays null
+    with pytest.raises(ExperimentError):
+        require_locked(on_disk)  # approved budgets authorize nothing: a draft cannot spend
+
+
+def test_the_budget_planning_note_states_the_approved_figures_and_that_nothing_is_authorized():
+    d = json.loads(E1_FILE.read_text())
+    note, lim = d["limits"]["budget_planning_note"], d["limits"]
+    for must in ("0.18", "3.84", "PROVISIONAL 0.30", "4 pairs x 2 runs x (0.18 + 0.30) = 3.84", "no reservation slack", "do NOT authorize execution", "remains a draft", "not locked", "never raised silently"):
+        assert must in note, must
+    assert "UNSET" not in note
+    assert Decimal(APPROVED_CAP) == guaranteed_reservation_usd(d) == 4 * 2 * (Decimal(APPROVED_BUDGET) + Decimal(lim["overshoot_allowance_usd"]))  # exactly funded: zero slack
 
 
 def test_e1_states_itself_as_exploratory_not_powered_and_documents_its_limits():
@@ -740,9 +766,9 @@ def test_the_builder_refuses_stages_that_are_not_exactly_the_eligible_tasks(monk
         eb.build_exploratory_definition(V2)
 
 
-def test_regenerated_e1_is_still_a_draft_with_null_budgets_and_v1_v2_are_unchanged():
+def test_regenerated_e1_is_still_a_draft_with_the_approved_budgets_and_v1_v2_are_unchanged():
     on_disk = json.loads(E1_FILE.read_text())
-    assert on_disk == fresh() and on_disk["status"] == "draft" and on_disk["limits"]["budget_usd_per_run"] is None and on_disk["limits"]["max_total_computed_usd"] is None
+    assert on_disk == committed_e1_expected() and on_disk["status"] == "draft" and on_disk["limits"]["budget_usd_per_run"] == APPROVED_BUDGET and on_disk["limits"]["max_total_computed_usd"] == APPROVED_CAP
     assert problems(on_disk) == [] and on_disk["metrics"]["transcript_parser_version"] == PARSER_VERSION
     assert V2["definition_sha256"].startswith("590536ec") and "small" not in on_disk["claim_scope"]
 
@@ -831,8 +857,9 @@ def test_the_builder_does_not_change_its_input_and_repeated_builds_are_independe
 
 
 def test_after_the_aliasing_fix_e1_is_unchanged_and_still_valid():
-    e1 = fresh()
-    assert e1 == json.loads(E1_FILE.read_text()) and e1["definition_sha256"].startswith("d5a3bae1")
+    e1 = json.loads(E1_FILE.read_text())
+    assert e1 == committed_e1_expected() and e1["definition_sha256"] == definition_hash(e1)
     assert problems(e1) == [] and e1["claim_scope"] == EXPLORATORY_CLAIM_SCOPE and e1["status"] == "draft"
-    assert e1["limits"]["budget_usd_per_run"] is None and e1["limits"]["max_total_computed_usd"] is None
+    assert e1["limits"]["budget_usd_per_run"] == APPROVED_BUDGET and e1["limits"]["max_total_computed_usd"] == APPROVED_CAP
+    assert fresh()["limits"]["budget_usd_per_run"] is None and fresh()["limits"]["max_total_computed_usd"] is None  # the aliasing fix left the builder's null-budget template alone
     assert e1["metrics"]["transcript_parser_version"] == PARSER_VERSION and [s["tasks"] for s in e1["design"]["stages"]] == [list(s["tasks"]) for s in E1_STAGES]
