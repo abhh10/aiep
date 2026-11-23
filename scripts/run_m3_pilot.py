@@ -88,7 +88,7 @@ def real_steps(root: Path, definition: dict, args: argparse.Namespace, key: str)
                 execute=m2_run.execute, handoff=handoff, grade=grade, write_noop=lambda p, t: grading.write_noop_predictions(p, t), pricing=pricing,
                 pin_image=task_setup.pin_image, **image_wiring(root), extract_seed=lambda c, r, t, *, free_bytes: task_setup.extract_and_pin_seed(
                     c, r, t, free_bytes=free_bytes, base_commit=load_record(t, root / ".cache" / "hf", root)["base_commit"], lineage=seed_lineage), verify_identity=task_setup.verify_and_pin_identity,
-                image_id_of=image_id_of,
+                image_id_of=image_id_of, dataset_record=lambda t: load_record(t, root / ".cache" / "hf", root),
                 containers_using=lambda c, iid: len(c.containers.list(all=True, filters={"ancestor": iid})),
                 remove_image_by_id=lambda c, iid: c.images.remove(iid, force=False), real_key=key, claude_binary=Path(args.claude_binary))
     return RealSteps(deps)

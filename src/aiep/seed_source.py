@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .container_policy import PolicyViolation
+from .preparation_gate import PreparationGateFailure
 from .seed import (MAX_ENTRIES, MAX_SEED_BYTES, Seed, SeedError, load_seed, parse_seed_archive, save_seed)
 
 SEED_ROOT = "/testbed"
@@ -58,6 +59,13 @@ _ALLOWED_CREATE_KEYS = frozenset({"image", "command", "name", "labels", "network
 
 class SeedSourceError(RuntimeError):
     """Seed extraction failed (Docker, archive reading, saving or cleanup)."""
+
+
+class SeedArchiveTooLarge(SeedSourceError, PreparationGateFailure):
+    """The /testbed archive is larger than the byte limit the caller set (``task_setup.MAX_ARCHIVE_BYTES`` for task preparation). A deterministic property of the task's own image, so a
+    preparation-gate failure that may trigger the pre-registered replacement; every other SeedSourceError (Docker, streaming, saving, cleanup) never does."""
+
+    code = "seed_archive_over_limit"
 
 
 def max_archive_bytes() -> int:
@@ -158,7 +166,7 @@ def read_bounded(stream: Iterable[Any], max_bytes: int) -> bytes:
             if not isinstance(chunk, (bytes, bytearray)):
                 raise SeedSourceError(f"invalid archive chunk of type {type(chunk).__name__}")
             if len(buf) + len(chunk) > max_bytes:
-                raise SeedSourceError(f"archive exceeds the {max_bytes}-byte limit; refused (not truncated)")
+                raise SeedArchiveTooLarge(f"archive exceeds the {max_bytes}-byte limit; refused (not truncated)")
             buf += chunk
     except SeedSourceError:
         raise

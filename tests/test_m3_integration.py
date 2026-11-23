@@ -153,6 +153,8 @@ class World:
 
     def deps(self, definition, **over):
         w = self
+        pre = definition["preregistration"]
+        repo_of = {t["instance_id"]: t["repo"] for t in pre["tasks"]} | {t["instance_id"]: t["repo"] for t in pre["replacements"]}
 
         def pin_image(c, root, task, *, free_bytes):
             tp.add_evaluator_image(root, task, w.img, source="fake")
@@ -166,6 +168,7 @@ class World:
                  digest_record=self.record_of, verify_registry=lambda rec: self.log.append(("verify_registry", self.task_of(rec))),
                  verify_identity=lambda *a, **k: None, image_present=lambda c, rec: any(t == self.task_of(rec) for t in self.images),
                  image_id_of=lambda c, n: self.img, containers_using=lambda c, i: self.running, remove_image_by_id=self.remove,
+                 dataset_record=lambda t: {"instance_id": t, "repo": repo_of[t], "base_commit": "c" * 40},
                  real_key="k" * 40, claude_binary=Path("/x"), sleep=lambda s: self.log.append(("sleep", s)))
         d.update(over)
         return Deps(**d)
@@ -300,7 +303,8 @@ def test_gold_noop_control_failure_replaces_then_runs_replacement(tmp_path, worl
     assert [kw["instance_id"] for _, kw in world.prepare_calls][:2] == [new, new]
     assert all(x["task_id"] != first for x in rows(tmp_path))
     r = rows(tmp_path)[0]
-    assert r["slot_id"] == f"{d['experiment_id']}/{new}/{d['design']['schedule'][0]['arm']}/r1" and r["order_index"] == 1 and r["pair_id"] == f"{d['experiment_id']}:{new}:r1"
+    assert r["slot_id"] == f"{d['experiment_id']}/{new}/{d['design']['schedule'][0]['arm']}/r1" and r["order_index"] == 1
+    assert r["pair_id"] == d["design"]["schedule"][0]["pair_id"] == f"{d['experiment_id']}:{first}:r1"  # the pair keeps its REGISTERED id; task_id and slot_id name the replacement
 
 
 def test_invalid_handoff_never_graded_never_success(tmp_path, world):

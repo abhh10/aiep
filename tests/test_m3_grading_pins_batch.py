@@ -173,6 +173,8 @@ class Fake:
         return {"slot_id": ident["slot_id"], "task_id": ident["task_id"], "cost_usd_computed": self.cost, "resolved": (grading or {}).get("resolved"),
                 "accounting_complete": self.accounting or handoff["status"] != "rejected", "lifecycle_status": "completed", "stop_reason": None}
     def exposure_estimate_usd(self, b, c): return Decimal("1.5")
+    def verify_task_identity(self, task, repo): return {"instance_id": task, "repo": repo, "base_commit": "c" * 40}  # a replacement's dataset identity (the real steps read the local snapshot)
+    def preparation_state(self, task): return {"image_pinned": task in self.prepared, "seed_pinned": task in self.prepared, "identity_verified": task in self.prepared, "runnable": task in self.prepared, "missing": []}
     def remove_image(self, t): self.log.append(("remove", t))
     def sleep(self, s): self.sleeps.append(s)
 

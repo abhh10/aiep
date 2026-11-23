@@ -49,6 +49,16 @@ class ExperimentError(ValueError):
     """The experiment definition is malformed, internally inconsistent, or not in a state that allows the requested action."""
 
 
+class StageMinimumViolation(ExperimentError):
+    """The replacement the pre-registered order selects would leave its own STAGE with fewer repositories than that stage's registered minimum. It is raised INSTEAD of skipping to a later registry
+    entry: the registered order is never changed, nothing is recorded, and a human must decide (the batch halts ``replacement_violates_stage_minimum``)."""
+
+    def __init__(self, message: str, *, failed: str, candidate: str, repo: str, stage: Any, stage_min_repos: int, stage_repos: list[str], registry_index: int):
+        super().__init__(message)
+        self.failed, self.candidate, self.repo, self.stage = failed, candidate, repo, stage
+        self.stage_min_repos, self.stage_repos, self.registry_index = stage_min_repos, stage_repos, registry_index
+
+
 def canonical(obj: Any) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
 
@@ -125,26 +135,49 @@ def is_exploratory(doc: Mapping[str, Any]) -> bool:
     return doc.get("kind") == KIND_EXPLORATORY
 
 
-def apply_replacement(definition: Mapping[str, Any], failed: str, already_used: list[str] | None = None) -> dict[str, Any]:
+def apply_replacement(definition: Mapping[str, Any], failed: str, already_used: list[str] | None = None, *, stage: Any = None, stage_tasks: list[str] | None = None,
+                      stage_min_repos: int | None = None) -> dict[str, Any]:
     """The pre-registered replacement of a task that failed its controls: the FIRST unused task in the replacement order whose repository still has room
-    (``max_per_repo``). It inherits the failed task's block position and arm order. Raises when no replacement is allowed (the batch stops)."""
+    (``max_per_repo``) and that keeps the overall repository minimum. It inherits the failed task's block position and arm order. Raises when no replacement is allowed (the batch stops).
+
+    Stage-aware (exploratory definitions): when ``stage_tasks`` (the stage's CURRENT tasks, including ``failed``) and ``stage_min_repos`` are given, the candidate the global rules select is then
+    checked against its own stage's registered repository minimum. A candidate that would violate it raises ``StageMinimumViolation``: the selection order is NOT altered (no later entry is tried) and
+    nothing is silently accepted. Without those arguments (feasibility pilots have no stages) the behaviour is exactly as before."""
     pre = definition["preregistration"]
     tasks = [t["instance_id"] for t in pre["tasks"]]
     if failed not in tasks:
         raise ExperimentError(f"{failed} is not one of the experiment's tasks")
     repos = {t["instance_id"]: t["repo"] for t in pre["tasks"]}
     used = set(already_used or [])
-    for cand in pre["replacements"]:
+    skipped: list[dict[str, str]] = []  # why each earlier registry entry was passed over: part of the audit record, derived only from the registry and the current task list
+    for index, cand in enumerate(pre["replacements"]):
         cid = cand["instance_id"]
-        if cid in used or cid in tasks:
+        if cid in used:
+            skipped.append({"instance_id": cid, "reason": "already_used"})
+            continue
+        if cid in tasks:
+            skipped.append({"instance_id": cid, "reason": "already_a_selected_task"})
             continue
         remaining = [repos[t] for t in tasks if t != failed] + [cand["repo"]]
         if remaining.count(cand["repo"]) > pre["selection"]["max_per_repo"]:
+            skipped.append({"instance_id": cid, "reason": "max_per_repo"})
             continue
         if len(set(remaining)) < pre["selection"]["min_repos"]:
+            skipped.append({"instance_id": cid, "reason": "min_repos"})
             continue
+        stage_check = None
+        if stage_tasks is not None or stage_min_repos is not None:
+            if stage_tasks is None or not (type(stage_min_repos) is int and stage_min_repos >= 1) or failed not in stage_tasks or any(t not in repos for t in stage_tasks):
+                raise ExperimentError(f"{failed} is not consistently part of the stage given for the replacement check")
+            stage_repos = sorted({repos[t] for t in stage_tasks if t != failed} | {cand["repo"]})
+            stage_check = {"stage": stage, "min_repos": stage_min_repos, "repos_after": stage_repos}
+            if len(stage_repos) < stage_min_repos:
+                raise StageMinimumViolation(
+                    f"replacing {failed} by {cid} ({cand['repo']}), the first registry entry the pre-registered rules select, would leave stage {stage} with {len(stage_repos)} repository(ies) "
+                    f"{stage_repos}, below its registered minimum of {stage_min_repos}; no later entry is tried and nothing is recorded: a human decision is required",
+                    failed=failed, candidate=cid, repo=cand["repo"], stage=stage, stage_min_repos=stage_min_repos, stage_repos=stage_repos, registry_index=index)
         new_tasks = [cid if t == failed else t for t in tasks]
-        return {"replaced": failed, "replacement": cid, "repo": cand["repo"], "tasks": new_tasks}
+        return {"replaced": failed, "replacement": cid, "repo": cand["repo"], "tasks": new_tasks, "registry_index": index, "skipped": skipped, "stage_check": stage_check}
     raise ExperimentError(f"no pre-registered replacement is available for {failed}: the batch must stop and be reviewed")
 
 

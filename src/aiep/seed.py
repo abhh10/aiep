@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from .preparation_gate import PreparationGateFailure
+
 SCHEMA = 1
 MAX_SEED_BYTES = 256 * 1024**2  # total extracted content of a seed
 # One regular file inside a SEED (a repository checkout). Raised from 64 MiB: the measured Git pack of sympy__sympy-22714 is 64.792 MiB (67,939,731 B). It applies to seed files ONLY; the
@@ -51,6 +53,15 @@ _SMALL_GIT_FILES = 8192
 
 class SeedError(ValueError):
     """The archive or a verification step is not acceptable."""
+
+
+class SeedGateError(SeedError, PreparationGateFailure):
+    """A SeedError that is a deterministic property of the task's own /testbed (a limit it exceeds, content the seed format refuses, an unresolvable HEAD). It is a preparation-gate
+    failure that may trigger the pre-registered replacement (see aiep.preparation_gate); a plain SeedError (unreadable tar, truncation, manifest or hash problems) never does."""
+
+    def __init__(self, message: str, code: str):
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -108,35 +119,35 @@ class Seed:
 # ------------------------------------------------------------------ path / entry validation
 def _check_relpath(rel: str) -> None:
     if not rel or rel.startswith("/") or len(rel) > MAX_PATH_LEN:
-        raise SeedError(f"unsafe path {rel[:80]!r}")
+        raise SeedGateError(f"unsafe path {rel[:80]!r}", "seed_unsafe_content")
     for c in rel:
         if c in "\x00\n\t\\" or ord(c) < 0x20:
-            raise SeedError(f"control or separator character in path {rel[:80]!r}")
+            raise SeedGateError(f"control or separator character in path {rel[:80]!r}", "seed_unsafe_content")
     for comp in rel.split("/"):
         if comp in ("", ".", "..") or len(comp) > MAX_COMPONENT_LEN:
-            raise SeedError(f"unsafe path component in {rel[:80]!r}")
+            raise SeedGateError(f"unsafe path component in {rel[:80]!r}", "seed_unsafe_content")
 
 
 def _check_symlink(rel: str, target: str) -> None:
     if not target or target.startswith("/") or "\x00" in target or "\n" in target or len(target) > MAX_PATH_LEN:
-        raise SeedError(f"symlink {rel!r} has an absolute or malformed target")
+        raise SeedGateError(f"symlink {rel!r} has an absolute or malformed target", "seed_unsafe_content")
     resolved = posixpath.normpath(posixpath.join(posixpath.dirname(rel), target))
     if resolved == ".." or resolved.startswith("../"):
-        raise SeedError(f"symlink {rel!r} points outside the tree")
+        raise SeedGateError(f"symlink {rel!r} points outside the tree", "seed_unsafe_content")
 
 
 def _resolve_head(small: dict[str, bytes]) -> str:
     head = small.get(".git/HEAD")
     if head is None:
-        raise SeedError("archive has no .git/HEAD")
+        raise SeedGateError("archive has no .git/HEAD", "seed_lineage_invalid")
     text = head.decode("ascii", "replace").strip()
     if _SHA_RE.match(text):
         return text
     if not text.startswith("ref: "):
-        raise SeedError("cannot understand .git/HEAD")
+        raise SeedGateError("cannot understand .git/HEAD", "seed_lineage_invalid")
     ref = text[5:].strip()
     if not _REF_RE.match(ref) or ".." in ref:
-        raise SeedError("HEAD names an unsafe ref")
+        raise SeedGateError("HEAD names an unsafe ref", "seed_lineage_invalid")
     loose = small.get(f".git/{ref}")
     if loose is not None and _SHA_RE.match(loose.decode("ascii", "replace").strip()):
         return loose.decode().strip()
@@ -145,7 +156,7 @@ def _resolve_head(small: dict[str, bytes]) -> str:
         parts = line.split()
         if len(parts) == 2 and parts[1] == ref and _SHA_RE.match(parts[0]):
             return parts[0]
-    raise SeedError(f"cannot resolve {ref} to a commit from the archive (no loose ref or packed-refs entry)")
+    raise SeedGateError(f"cannot resolve {ref} to a commit from the archive (no loose ref or packed-refs entry)", "seed_lineage_invalid")
 
 
 # ------------------------------------------------------------------ building
@@ -171,15 +182,15 @@ def _build(items: list[tuple[Entry, bytes | None, int]]) -> bytes:
 def _check_tree(entries: list[Entry]) -> None:
     kinds = {e.path: e.type for e in entries}
     if len(kinds) != len(entries):
-        raise SeedError("archive contains duplicate paths")
+        raise SeedGateError("archive contains duplicate paths", "seed_unsafe_content")
     for e in entries:
         parent = posixpath.dirname(e.path)
         while parent:
             k = kinds.get(parent)
             if k is None:
-                raise SeedError(f"{e.path!r} has no directory entry for its parent {parent!r}")
+                raise SeedGateError(f"{e.path!r} has no directory entry for its parent {parent!r}", "seed_unsafe_content")
             if k != "d":
-                raise SeedError(f"{e.path!r} lies under a {'symlink' if k == 'l' else 'file'}, not a directory")
+                raise SeedGateError(f"{e.path!r} lies under a {'symlink' if k == 'l' else 'file'}, not a directory", "seed_unsafe_content")
             parent = posixpath.dirname(parent)
 
 
@@ -187,7 +198,7 @@ def parse_seed_archive(data: bytes | BinaryIO, *, root: str = "testbed") -> Seed
     """Validate a ``get_archive`` tar of ``/<root>`` and return the normalised seed."""
     raw = data.read() if hasattr(data, "read") else data
     if len(raw) > MAX_SEED_BYTES + MAX_ENTRIES * 1536:  # content limit plus tar header/padding overhead
-        raise SeedError("archive is too large")
+        raise SeedGateError("archive is too large", "seed_archive_over_limit")
     try:
         tf = tarfile.open(fileobj=io.BytesIO(raw), mode="r:*")
     except tarfile.TarError as e:
@@ -198,14 +209,14 @@ def parse_seed_archive(data: bytes | BinaryIO, *, root: str = "testbed") -> Seed
     with tf:
         for m in tf:
             if len(items) >= MAX_ENTRIES:
-                raise SeedError("archive has too many entries")
+                raise SeedGateError("archive has too many entries", "seed_entries_over_limit")
             name = m.name.rstrip("/")
             first, _, rel = name.partition("/")
             if first != root:
-                raise SeedError(f"entry {name[:80]!r} is outside {root}/")
+                raise SeedGateError(f"entry {name[:80]!r} is outside {root}/", "seed_unsafe_content")
             if not rel:  # the root directory itself
                 if not m.isdir():
-                    raise SeedError("the archive root is not a directory")
+                    raise SeedGateError("the archive root is not a directory", "seed_unsafe_content")
                 continue
             _check_relpath(rel)
             mode = m.mode & 0o777
@@ -216,10 +227,10 @@ def parse_seed_archive(data: bytes | BinaryIO, *, root: str = "testbed") -> Seed
                 items.append((Entry("l", 0o777, 0, None, m.linkname, rel), None, int(m.mtime)))
             elif m.isreg():
                 if m.size > MAX_SEED_FILE_BYTES:
-                    raise SeedError(f"{rel!r} is larger than the per-file limit")
+                    raise SeedGateError(f"{rel!r} is larger than the per-file limit", "seed_file_over_limit")
                 total += m.size
                 if total > MAX_SEED_BYTES:
-                    raise SeedError("archive exceeds the total size limit")
+                    raise SeedGateError("archive exceeds the total size limit", "seed_content_over_limit")
                 body = tf.extractfile(m).read()  # type: ignore[union-attr]
                 if len(body) != m.size:
                     raise SeedError(f"{rel!r} is truncated")
@@ -229,7 +240,7 @@ def parse_seed_archive(data: bytes | BinaryIO, *, root: str = "testbed") -> Seed
                 items.append((Entry("f", mode, m.size, hashlib.sha256(body).hexdigest(), None, rel), body, int(m.mtime)))
             else:
                 kind = "hard link" if m.islnk() else "device, fifo or other special file"
-                raise SeedError(f"{rel!r} is a {kind}; refused")
+                raise SeedGateError(f"{rel!r} is a {kind}; refused", "seed_unsafe_content")
     entries = [i[0] for i in items]
     _check_tree(entries)
     head = _resolve_head(small)

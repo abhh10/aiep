@@ -20,20 +20,24 @@ not a guarantee, and the report says so.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
-from .experiment_def import (ExperimentError, apply_replacement, build_schedule, build_staged_schedule, definition_hash, guaranteed_reservation_usd, is_exploratory, require_locked)
+from .experiment_def import (ExperimentError, StageMinimumViolation, apply_replacement, build_schedule, build_staged_schedule, definition_hash, guaranteed_reservation_usd, is_exploratory, require_locked)
 from .rejection_policy import ACCOUNTING, HIDDEN_LEAK, INTEGRITY, TRANSIENT, classify_handoff
 from .grading import HARD_STOP_GIB, START_GATE_GIB, control_problems
+from .preparation_gate import gate_failure_of
 from .results import ResultsWriter
+from .task_screening import image_name
 
-NOT_ACKNOWLEDGEABLE = frozenset({"slot_interrupted", "interrupted", "definition_changed", "definition_invalid", "identity_mismatch", "accounting_incomplete"})  # accounting_incomplete: the cumulative cost may be understated
+NOT_ACKNOWLEDGEABLE = frozenset({"slot_interrupted", "interrupted", "definition_changed", "definition_invalid", "identity_mismatch", "accounting_incomplete", "replacement_history_invalid", "replacement_violates_stage_minimum"})  # accounting_incomplete: the cumulative cost may be understated
 REQUIRED_STOP_IDS = ("handoff_integrity_failure", "financial_exposure_uncertain")  # registered by definitions from m3-pilot-v2 on
 INFRA_STOP_REASONS = frozenset({"proxy_died", "lease_lost", "gateway_unreachable", "gateway_died"})
 
@@ -172,9 +176,10 @@ def blocks_of(definition: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def slot_identity(definition: Mapping[str, Any], slot: Mapping[str, Any], task_id: str) -> dict[str, Any]:
-    """The experiment identity of a slot, with the task id substituted when a replacement took the block."""
+    """The experiment identity of a slot. ``task_id`` (and so ``slot_id``) is the task that actually runs: a replacement's id when one took the block. ``pair_id`` is ALWAYS the pair id registered in
+    the schedule (it names the original pair, so a replaced pair stays traceable to its pre-registered position, stage and arm order); the replacement record maps it to the replacement."""
     eid = definition["experiment_id"]
-    return {"experiment_id": eid, "task_id": task_id, "arm": slot["arm"], "repetition": slot["rep"], "pair_id": f"{eid}:{task_id}:r{slot['rep']}",
+    return {"experiment_id": eid, "task_id": task_id, "arm": slot["arm"], "repetition": slot["rep"], "pair_id": slot["pair_id"],
             "order_index": slot["order_index"], "slot_id": f"{eid}/{task_id}/{slot['arm']}/r{slot['rep']}", "arm_position": slot["arm_position"]}
 
 
@@ -211,6 +216,7 @@ def run_pilot(definition: Mapping[str, Any], steps: Steps, *, state_path: Path, 
     st = store.state
     for k, v in (("not_run", []), ("reservations", []), ("decisions", {}), ("stage_activations", [])):
         st.setdefault(k, v)  # states written before these existed stay readable
+    verify_replacement_history(definition, st)  # a recorded replacement can never silently change: any edit, removal, reordering or mismatch refuses to start (not acknowledgeable)
     writer = ResultsWriter(results_path)
     if st["status"] == "halted":
         if (st["halt"] or {}).get("id") in NOT_ACKNOWLEDGEABLE:
@@ -325,6 +331,79 @@ def _gate(steps: Steps, *, starting: bool) -> None:
         raise BatchHalt("disk_start_gate", f"free disk {free:.2f} GiB is below the {START_GATE_GIB:.0f} GiB start gate: a block does not start")
 
 
+GENESIS_SHA = "0" * 64
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _record_digest(rec: Mapping[str, Any]) -> str:
+    body = {k: v for k, v in rec.items() if k != "record_sha256"}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def verify_replacement_history(definition: Mapping[str, Any], st: Mapping[str, Any]) -> None:
+    """Refuse to continue if the recorded replacement history is not exactly what was written: hash-chained, consecutive, chained per block, drawn from the registered replacement list, never a
+    selected task, never used twice, and agreeing with what each block currently runs. Records written before the audited format (no ``replacement_schema``) are readable but not verifiable."""
+    recs = st.get("replacements") or []
+    if not recs:
+        return
+    if st.get("replacement_schema") != 2:
+        if any("record_sha256" in r for r in recs):
+            raise BatchHalt("replacement_history_invalid", "replacement records carry hashes but the state is not marked as the audited schema: the state was edited")
+        return
+    pre = definition["preregistration"]
+    blocks = {b["task_id"] for b in blocks_of(definition)}
+    selected = {t["instance_id"] for t in pre["tasks"]}
+    registry = {r["instance_id"] for r in pre["replacements"]}
+    prev, chain, used = GENESIS_SHA, {}, set()
+    for i, r in enumerate(recs):
+        ok = (r.get("sequence") == i + 1 and r.get("prev_record_sha256") == prev and r.get("record_sha256") == _record_digest(r))
+        if not ok:
+            raise BatchHalt("replacement_history_invalid", f"replacement record {i + 1} does not match its hash chain: the history was edited, removed, reordered or forged")
+        prev = r["record_sha256"]
+        block, rep = r.get("block"), r.get("replacement")
+        if block not in blocks or r.get("replaced") != chain.get(block, block) or rep in used or rep in selected or rep not in registry:
+            raise BatchHalt("replacement_history_invalid", f"replacement record {i + 1} ({block} -> {rep}) is inconsistent with the registered schedule and replacement list")
+        used.add(rep)
+        chain[block] = rep
+    for block, last in chain.items():
+        b = (st.get("blocks") or {}).get(block)
+        if b is not None and b.get("task_id") != last:
+            raise BatchHalt("replacement_history_invalid", f"block {block} runs {b.get('task_id')} but its last recorded replacement is {last}")
+
+
+def _stage_context(definition: Mapping[str, Any], st: Mapping[str, Any], block: Mapping[str, Any]) -> dict[str, Any]:
+    """The stage a block belongs to, for the replacement's stage-minimum check: its number, its registered repository minimum and its CURRENT tasks (every recorded replacement applied).
+    Feasibility pilots have no stages: an empty context, so their replacement behaviour is unchanged."""
+    if not is_exploratory(definition):
+        return {}
+    stage = block["slots"][0].get("stage")
+    stage_def = next((s for s in definition["design"]["stages"] if s["stage"] == stage), None)
+    if stage_def is None:
+        raise BatchHalt("replacement_stage_unknown", f"block {block['task_id']} names stage {stage!r}, which the definition does not have")
+    now = dict(zip((t["instance_id"] for t in definition["preregistration"]["tasks"]), _final_tasks(definition, st)))
+    return {"stage": stage, "stage_min_repos": stage_def["min_repos"], "stage_tasks": [now[t] for t in stage_def["tasks"]]}
+
+
+def _verified_replacement_identity(steps: Steps, definition: Mapping[str, Any], rep: Mapping[str, Any]) -> dict[str, Any]:
+    """The replacement's identity as the dataset records it (instance id, repository, base commit) and the registered image name, checked BEFORE the replacement is recorded. A candidate that cannot
+    be verified halts for review: the batch never skips to the next candidate silently."""
+    verify = getattr(steps, "verify_task_identity", None)
+    if not callable(verify):
+        raise BatchHalt("replacement_identity_unverifiable", f"{rep['replacement']}: these steps cannot verify a replacement's identity and dataset base commit, so no replacement is recorded")
+    entry = next(c for c in definition["preregistration"]["replacements"] if c["instance_id"] == rep["replacement"])
+    if entry.get("image") != image_name(rep["replacement"]):
+        raise BatchHalt("replacement_identity_invalid", f"{rep['replacement']}: the registered image {entry.get('image')!r} is not the published image of that instance; no replacement is recorded")
+    try:
+        got = verify(rep["replacement"], rep["repo"])
+    except Exception as e:
+        raise BatchHalt("replacement_identity_invalid", f"{rep['replacement']}: identity verification failed ({type(e).__name__}: {str(e)[:200]}); no replacement is recorded") from e
+    if not (isinstance(got, Mapping) and got.get("instance_id") == rep["replacement"] and got.get("repo") == rep["repo"] and isinstance(got.get("base_commit"), str)
+            and _COMMIT_RE.fullmatch(got["base_commit"])):
+        raise BatchHalt("replacement_identity_invalid", f"{rep['replacement']}: the dataset identity does not match the registered replacement (id, repository, 40-hex base commit); no replacement is recorded")
+    return {"instance_id": got["instance_id"], "repo": got["repo"], "base_commit": got["base_commit"], "image": entry.get("image"), "verified": True,
+            "source": "the pinned local dataset snapshot (hidden fields are never read into this record)"}
+
+
 def _run_block(definition: Mapping[str, Any], steps: Steps, store: StateStore, writer: ResultsWriter, ap: Approvals, repos: Mapping[str, str], block: Mapping[str, Any]) -> None:
     st = store.state
     original = block["task_id"]
@@ -360,6 +439,7 @@ def _run_block(definition: Mapping[str, Any], steps: Steps, store: StateStore, w
     _gate(steps, starting=True)
     while True:  # task preparation and controls; a control failure replaces the task before any agent run
         failed = _compat_failures(definition, st, task)  # a conditional task needs its recorded compatibility decision BEFORE anything is prepared or run
+        failure: dict[str, Any] | None = {"trigger": "compatibility", "code": "compatibility_incompatible", "detail": "; ".join(failed)} if failed else None
         if not failed:
             if not steps.task_prepared(task):
                 why = getattr(steps, "unprepared_reason", None)  # optional: steps that can say WHY (incomplete pins vs a complete task whose pinned image is not local)
@@ -367,10 +447,20 @@ def _run_block(definition: Mapping[str, Any], steps: Steps, store: StateStore, w
                 if not ap.pulls:  # the pull-approval boundary: an absent image is never pulled, and nothing runs, without it
                     raise BatchHalt("task_not_prepared", f"{task} is not prepared: {reason}; pulls/pins were not approved")
                 store.event("prepare_task", task=task)
-                info = steps.prepare_task(task) or {}
-                bstate["pulled"][task] = bool(info.get("pulled"))  # only an image THIS batch pulled is ever removed by it
-                store.save()
-            for kind in ("gold", "noop"):
+                try:
+                    info = steps.prepare_task(task) or {}
+                except Exception as e:
+                    gate = gate_failure_of(e)  # ONLY a deterministic, typed preparation-gate failure may replace the task; everything else halts for review and never replaces
+                    if gate is None:
+                        store.event("preparation_error_not_replaceable", task=task, error=type(e).__name__, detail=str(e)[:300])
+                        raise
+                    failed = [f"preparation gate {gate['code']}: {gate['detail']}"]
+                    failure = {"trigger": "preparation_gate", **gate}
+                    store.event("preparation_gate_failure", task=task, code=gate["code"], error=gate["exception"], detail=gate["detail"])
+                else:
+                    bstate["pulled"][task] = bool(info.get("pulled"))  # only an image THIS batch pulled is ever removed by it (a failed preparation records nothing here: its image is never removed)
+                    store.save()
+            for kind in (("gold", "noop") if not failed else ()):  # a preparation-gate failure skips the controls: the task is already unusable
                 done = bstate["controls"].get(task, {}).get(kind)
                 if done is None:
                     if not ap.controls:
@@ -386,14 +476,37 @@ def _run_block(definition: Mapping[str, Any], steps: Steps, store: StateStore, w
                 failed += [f"{kind}: {p}" for p in done["problems"]]
         if not failed:
             break
+        if failure is None:
+            failure = {"trigger": "control", "code": "control_failed", "detail": "; ".join(failed)}
+        if any(v in ("started", "done") for v in bstate["slots"].values()):  # replacement is only ever before any agent run on the block
+            raise BatchHalt("replacement_after_run", f"{original}: a run of this block has already started, so it is never replaced ({failure['trigger']}: {'; '.join(failed)})")
         try:
             rep = apply_replacement({"preregistration": definition["preregistration"] | {"tasks": [{"instance_id": t, "repo": repos[t]} for t in _final_tasks(definition, st)]}},
-                                    task, already_used=[r["replaced"] for r in st["replacements"]] + [r["replacement"] for r in st["replacements"]])
+                                    task, already_used=[r["replaced"] for r in st["replacements"]] + [r["replacement"] for r in st["replacements"]], **_stage_context(definition, st, block))
+        except StageMinimumViolation as e:  # BEFORE the generic handler: the registered order is not altered, no later entry is tried, nothing is recorded; a human decides
+            store.event("replacement_blocked_by_stage_minimum", block=original, replaced=task, candidate=e.candidate, repo=e.repo, stage=e.stage, stage_min_repos=e.stage_min_repos,
+                        stage_repos_after=e.stage_repos, registry_index=e.registry_index, trigger=failure["trigger"], code=failure.get("code"))
+            raise BatchHalt("replacement_violates_stage_minimum", str(e)) from e
         except ExperimentError as e:
-            raise BatchHalt("control_replacement_exhausted", f"{task} failed its controls ({'; '.join(failed)}) and {e}") from e
-        st["replacements"].append({"replaced": task, "replacement": rep["replacement"], "repo": rep["repo"], "reasons": failed, "block": original})
+            raise BatchHalt("control_replacement_exhausted", f"{task} cannot be used ({failure['trigger']}: {'; '.join(failed)}) and {e}") from e
+        if st["replacements"] and any("record_sha256" not in r for r in st["replacements"]):
+            raise BatchHalt("replacement_history_invalid", "the state holds replacement records from before the audited format: they cannot be extended")
+        identity = _verified_replacement_identity(steps, definition, rep)
+        snapshot = getattr(steps, "preparation_state", None)
+        first = block["slots"][0]
+        rec = {"sequence": len(st["replacements"]) + 1, "block": original, "stage": first.get("stage"), "scheduled_pair_id": first["pair_id"], "first_arm": first["arm"],
+               "arm_order": [x["arm"] for x in block["slots"]], "repetition": first["rep"], "replaced": task, "replacement": rep["replacement"], "repo": rep["repo"], "reasons": failed,
+               "trigger": failure["trigger"], "failure": failure, "registry_index": rep["registry_index"], "skipped_before_selection": rep["skipped"],
+               "order_rule": "the first unused entry of preregistration.replacements, in registry order, that keeps at most max_per_repo tasks per repository and at least min_repos repositories",
+               "replacement_identity": identity, "stage_check": rep.get("stage_check"), "failed_task_state": snapshot(task) if callable(snapshot) else None,
+               "artifacts_policy": "left in place: nothing of the replaced task is deleted, overwritten, unpinned or re-used; it never runs in this experiment", "uses_ab_outcomes": False,
+               "prev_record_sha256": st["replacements"][-1]["record_sha256"] if st["replacements"] else GENESIS_SHA}
+        rec["record_sha256"] = _record_digest(rec)
+        st["replacements"].append(rec)
+        st["replacement_schema"] = 2
         bstate["task_id"], task = rep["replacement"], rep["replacement"]
-        store.event("replacement", **st["replacements"][-1])
+        store.event("replacement", sequence=rec["sequence"], block=original, replaced=rec["replaced"], replacement=rec["replacement"], trigger=failure["trigger"], code=failure.get("code"),
+                    record_sha256=rec["record_sha256"])
         _gate(steps, starting=True)
     lim = definition["limits"]
     for i, slot in enumerate(block["slots"]):

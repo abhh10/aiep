@@ -16,6 +16,7 @@ Guarantees implemented here (each is tested):
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -115,6 +116,7 @@ class Deps:
     claude_binary: Path
     sleep: Callable[[float], None] = time.sleep
     stamp: Callable[[], str] = lambda: time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    dataset_record: Callable[[str], Mapping[str, Any]] | None = None  # task id -> its dataset record from the pinned LOCAL snapshot (host side only); needed to verify a replacement's identity
 
 
 class RealSteps:
@@ -156,6 +158,30 @@ class RealSteps:
 
     def task_prepared(self, task_id: str) -> bool:
         return self.unprepared_reason(task_id) is None
+
+    def preparation_state(self, task_id: str) -> dict[str, Any]:
+        """What is pinned for a task right now (read-only; no Docker call). Recorded when a task is replaced, so the failed task's partial state stays auditable."""
+        ps = pin_status(self.root, task_id)
+        return {k: ps[k] for k in ("image_pinned", "seed_pinned", "identity_verified", "runnable", "missing")}
+
+    def verify_task_identity(self, task_id: str, repo: str) -> dict[str, str]:
+        """A replacement's identity from the pinned local dataset snapshot: the instance id, its repository (must equal the registered one) and a 40-hex base commit. Returns ONLY those three
+        fields: hidden task data never leaves this method. Raises StepError on any mismatch or if no dataset source is wired. (The registered image name is checked by the batch, not here:
+        no preparation module derives or resolves an image name.)"""
+        if self.d.dataset_record is None:
+            raise StepError("no dataset record source is wired: a replacement's identity and base commit cannot be verified")
+        rec = self.d.dataset_record(task_id)
+        got = {"instance_id": rec.get("instance_id"), "repo": rec.get("repo"), "base_commit": rec.get("base_commit")}
+        problems = []
+        if got["instance_id"] != task_id:
+            problems.append(f"the dataset record is for {got['instance_id']!r}")
+        if got["repo"] != repo:
+            problems.append(f"the dataset repository is {got['repo']!r}, the registered one is {repo!r}")
+        if not (isinstance(got["base_commit"], str) and re.fullmatch(r"[0-9a-f]{40}", got["base_commit"])):
+            problems.append("the dataset base_commit is not a 40-character lowercase commit")
+        if problems:
+            raise StepError(f"{task_id}: " + "; ".join(problems))
+        return {k: str(v) for k, v in got.items()}
 
     def prepare_task(self, task_id: str) -> dict[str, Any]:
         return prepare_pinned_task(root=self.root, task_id=task_id, client_factory=self.d.client_factory, free_gib=self.free_gib, digest_record=self.d.digest_record,

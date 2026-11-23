@@ -16,6 +16,7 @@ from .agent_env import IDENTITY_SCRIPT, check_identity, load_agent_config
 from .agent_runner import AgentRunSpec, _teardown, _wait_running, agent_context, build_create_kwargs, exec_context
 from .container_exec import run_exec
 from .container_policy import verify_inspect
+from .preparation_gate import PreparationGateFailure
 from .seed import build_component_archive, load_seed
 from .seed_source import extract_seed
 from .task_pins import PinError, add_evaluator_image, add_seed_pin, evaluator_image_pin, write_identity
@@ -31,6 +32,20 @@ MAX_ARCHIVE_BYTES = 128 * 1024**2
 
 class SetupRefused(RuntimeError):
     pass
+
+
+class SeedLineageMismatch(SetupRefused, PreparationGateFailure):
+    """The extracted seed's HEAD / parent is not the registered history (the dataset base_commit). A deterministic property of the image: a preparation-gate failure. A lineage check that
+    could not RUN (git failed) is a plain SetupRefused and never triggers replacement."""
+
+    code = "seed_lineage_invalid"
+
+
+class IdentityMismatch(SetupRefused, PreparationGateFailure):
+    """A COMPLETED identity probe reported an account other than the configured one. A deterministic property of the image: a preparation-gate failure. A probe that timed out, was truncated
+    or whose container could not be removed is a plain SetupRefused and never triggers replacement."""
+
+    code = "identity_mismatch"
 
 
 def _gate(free_bytes: int) -> None:
@@ -77,12 +92,19 @@ def extract_and_pin_seed(client: Any, root: Path, instance_id: str, *, free_byte
     except Exception as e:
         raise SetupRefused(f"the seed's HEAD and parent could not be checked ({type(e).__name__}: {e}); nothing was pinned, the extracted seed in {directory} is unpinned") from e
     if head != m.head:
-        raise SetupRefused(f"git reports HEAD {str(head)[:12]} but the seed manifest records {m.head[:12]}; nothing was pinned (extracted seed left in {directory})")
+        raise SeedLineageMismatch(f"git reports HEAD {str(head)[:12]} but the seed manifest records {m.head[:12]}; nothing was pinned (extracted seed left in {directory})")
     if parent != base_commit:
-        raise SetupRefused(f"the seed's HEAD {m.head[:12]} has parent {str(parent)[:12] or 'none'}, not the dataset base_commit {base_commit[:12]}; nothing was pinned "
+        raise SeedLineageMismatch(f"the seed's HEAD {m.head[:12]} has parent {str(parent)[:12] or 'none'}, not the dataset base_commit {base_commit[:12]}; nothing was pinned "
                            f"(extracted seed left in {directory}, unpinned)")
     add_seed_pin(root, instance_id, directory=f".cache/seeds/{instance_id}", sha256=m.archive_sha256, head=m.head, entries=len(m.entries), image_id=pin["image_id"])
     return {"seed_sha256": m.archive_sha256, "head": m.head, "base_commit": base_commit, "entries": len(m.entries), "container_removed": res.removed}
+
+
+def _identity_error(problems: list[str], *, probe_incomplete: bool) -> SetupRefused:
+    """A COMPLETED probe that reports another account is a deterministic property of the image (IdentityMismatch, a preparation-gate failure). An interrupted probe (timeout, truncated output)
+    says nothing about the image and is a plain SetupRefused that never triggers replacement."""
+    message = f"the image's account is not the configured one: {'; '.join(problems)}"
+    return SetupRefused(message) if probe_incomplete else IdentityMismatch(message)
 
 
 def verify_and_pin_identity(client: Any, root: Path, instance_id: str, *, free_bytes: int, candidate_path: Path | None = None) -> dict[str, Any]:
@@ -117,7 +139,7 @@ def verify_and_pin_identity(client: Any, root: Path, instance_id: str, *, free_b
     if err or not removed:
         raise SetupRefused(f"the identity-check container could not be removed: {err}")
     if problems:
-        raise SetupRefused(f"the image's account is not the configured one: {'; '.join(problems)}")
+        raise _identity_error(problems, probe_incomplete=bool(probe.timed_out or probe.truncated))
     lines = probe.stdout.decode("utf-8", "replace").splitlines()
     path = write_identity(root, instance_id, candidate, image_id=pin["image_id"], verified_on=time.strftime("%Y-%m-%d", time.gmtime()),
                           evidence=[f"identity probe in a throwaway hardened container (network none, all capabilities dropped, no-new-privileges) from image {pin['image_id']}: "
