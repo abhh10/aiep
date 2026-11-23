@@ -120,7 +120,7 @@ def test_pins_never_overwrite(tmp_path):
     assert st["image_pinned"] and st["seed_pinned"] and not st["runnable"] and "agent_identity" in st["missing"]
 
 
-PREPARED_TASKS = {"sympy__sympy-18621"}  # image (digest-pinned), seed and identity are genuinely pinned and verified; add a task here only when it really is
+PREPARED_TASKS = {"sympy__sympy-18621", "sympy__sympy-22714", "django__django-13933", "django__django-15851"}  # image (digest-pinned), seed and identity are genuinely pinned and verified (the four E1 Stage 1 tasks, commit dcf4bf1); add a task here only when it really is
 
 
 def test_repo_unpinned_tasks_not_runnable():
@@ -133,7 +133,7 @@ def test_repo_unpinned_tasks_not_runnable():
             assert status["runnable"] and status["missing"] == [], status
         else:
             assert not status["runnable"], tid
-    assert len([t for t in ids if t not in PREPARED_TASKS]) == 7
+    assert len([t for t in ids if t not in PREPARED_TASKS]) == 4
 
 
 # ---------- batch
