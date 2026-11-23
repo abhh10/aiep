@@ -25,7 +25,7 @@
     "revision": "b0dde1093fe417d83b7184254edf8199c1f0dff5",
     "split": "test"
   },
-  "definition_sha256": "434a94a22c12945b50764b47d91df1edca3d02a14569bee49ebe87385130e2a0",
+  "definition_sha256": "9601b345da705b7e8bbdba251b902f4c7637482fd2e87e732dcba0dc36875eff",
   "derived_from": {
     "changes": [
       "a subset of v2's selected tasks in two stages (matplotlib and scikit-learn excluded)",
@@ -252,7 +252,7 @@
   "kind": "exploratory_ab",
   "limits": {
     "b_max_test_fix_cycles": 5,
-    "budget_planning_note": "budget_usd_per_run is 0.18 and max_total_computed_usd is 3.84 (the operator's approved budget decision). The overshoot allowance is a PROVISIONAL 0.30 per run, so the Stage 1 reservation is 4 pairs x 2 runs x (0.18 + 0.30) = 3.84, with no reservation slack. These budgets do NOT authorize execution: E1 remains a draft and is not locked, and a run needs a locked definition and an explicit spend approval equal to the cap. The cap is the experiment's computed ledger cost for scored runs only; it is never raised silently.",
+    "budget_planning_note": "budget_usd_per_run is 0.18 and max_total_computed_usd is 3.84 (the operator's approved budget decision). The overshoot allowance is a PROVISIONAL 0.30 per run, so the Stage 1 reservation is 4 pairs x 2 runs x (0.18 + 0.30) = 3.84, with no reservation slack. This definition is LOCKED; the lock and the budgets do NOT authorize execution by themselves: a run also needs an explicit spend approval equal to the cap, the pull and control approvals, the key, the pinned Claude binary and the user's fresh Console billing check. The cap is the experiment's computed ledger cost for scored runs only; it is never raised silently.",
     "budget_usd_per_run": "0.18",
     "calibration_spend_note": "two calibration runs, from the gateway ledgers (computed, not the Console); excluded from the scored cap",
     "calibration_spend_observed_usd": "0.0906",
@@ -869,7 +869,7 @@
   ],
   "research_question": "Does prescribing an iterative test-and-fix workflow improve Claude Code's software issue-resolution performance, and at what additional cost?",
   "schema": 1,
-  "status": "draft",
+  "status": "locked",
   "stop_conditions": [
     {
       "action": "halt",

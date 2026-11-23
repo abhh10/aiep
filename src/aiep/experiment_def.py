@@ -207,7 +207,7 @@ def require_locked(doc: Mapping[str, Any]) -> None:
     """Spending (anything that calls the API) needs a LOCKED definition: budgets and the total cap set after calibration."""
     lim = doc["limits"]
     if doc.get("status") != "locked" or lim.get("budget_usd_per_run") in (None, "") or lim.get("max_total_computed_usd") in (None, ""):
-        raise ExperimentError("the experiment is a draft: per-run and total budgets are not set (they are fixed after an approved calibration), so nothing may spend")
+        raise ExperimentError("the experiment is not locked or a per-run or total budget is unset: the definition must be locked with both budgets set (a separate, explicit approval) before anything may spend")
 
 
 def _validate_stages(doc: Mapping[str, Any], tasks: list[Mapping[str, Any]], seed: Any, eid: Any, min_repos: Any) -> list[str]:

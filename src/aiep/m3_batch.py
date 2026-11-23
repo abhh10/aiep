@@ -184,18 +184,32 @@ def slot_identity(definition: Mapping[str, Any], slot: Mapping[str, Any], task_i
 
 
 def plan(definition: Mapping[str, Any], stages: Any = (1,)) -> list[str]:
-    """What an execution would do, in order, and what each step needs. Touches nothing."""
+    """What an execution would do, in order, and what each step needs. Touches nothing.
+
+    The counts of the ACTIVE stages (what ``--stages`` would run) are reported separately from the totals the definition holds: an exploratory definition also holds its inactive later
+    stages, which never start unless named. Controls (gold and no-op, evaluator only) and gradings are listed apart from the scored agent runs."""
     lim = definition["limits"]
-    kind = "exploratory study" if is_exploratory(definition) else "feasibility pilot"
+    exploratory = is_exploratory(definition)
+    kind = "exploratory study" if exploratory else "feasibility pilot"
     active = validate_stage_selection(definition, stages)
-    lines = [f"experiment {definition['experiment_id']} status={definition['status']} ({kind}, active stages {list(active)} of {[x['stage'] for x in definition['design']['stages']] if is_exploratory(definition) else [1]}, {len(blocks_of(definition))} blocks, {len(definition['design']['schedule'])} scheduled runs)",
+    every = blocks_of(definition)
+    live = [b for b in every if not exploratory or b["slots"][0].get("stage", 1) in active]
+    runs = sum(len(b["slots"]) for b in live)
+    total = f"{len(every)} blocks, {len(definition['design']['schedule'])} scheduled runs"
+    scope = total if len(live) == len(every) else f"{len(live)} blocks = {len(live)} pairs, {runs} scheduled scored agent runs; the definition defines {total} in total and the other stages are INACTIVE"
+    lines = [f"experiment {definition['experiment_id']} status={definition['status']} ({kind}, active stages {list(active)} of {[x['stage'] for x in definition['design']['stages']] if exploratory else [1]}, {scope})",
              f"limits: wall {lim['wall_clock_s']} s per run, budget per run {lim['budget_usd_per_run']}, total cap {lim['max_total_computed_usd']}, "
              f"gateway max concurrent {lim['gateway_max_concurrent']}, start gate {START_GATE_GIB:.0f} GiB, hard stop {HARD_STOP_GIB:.0f} GiB"]
-    for b in blocks_of(definition):
+    for b in every:
         s1, s2 = b["slots"]
-        lines.append(f"block {b['task_id']}: [approve pulls] pull, pin image, extract seed, verify identity -> [approve controls] gold control, no-op control (replace on failure) "
-                     f"-> {s1['arm']} (order {s1['order_index']}) -> wait {definition['design']['pair_gap_s']} s -> {s2['arm']} (order {s2['order_index']}) "
-                     "-> handoff validation + grading per run -> results row -> [approve] remove image")
+        if b not in live:
+            lines.append(f"block {b['task_id']}: INACTIVE (stage {s1.get('stage', 1)}): nothing is prepared, controlled or run for it unless --stages names stage {s1.get('stage', 1)}")
+            continue
+        lines.append(f"block {b['task_id']}: [approve pulls] prepare the task only if it is not already prepared (pull, pin image, extract seed, verify identity) -> [approve controls] gold control, "
+                     f"no-op control (replace on failure) -> {s1['arm']} (order {s1['order_index']}) -> wait {definition['design']['pair_gap_s']} s -> {s2['arm']} (order {s2['order_index']}) "
+                     "-> handoff validation + grading per run -> results row -> [approve] remove image (only an image this batch pulled)")
+    lines.append(f"counts for the active stages: {len(live)} pairs, {runs} scored agent runs (each graded once by the evaluator when its handoff is ready); {2 * len(live)} evaluator controls before them "
+                 "(gold and no-op per task; a replacement task adds 2 more). Controls and gradings are evaluator runs, not agent runs, and controls never become result rows")
     lines.append("stop conditions: " + ", ".join(c["id"] for c in definition["stop_conditions"]))
     return lines
 

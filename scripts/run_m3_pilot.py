@@ -37,7 +37,7 @@ def blockers(root: Path, definition: dict, args: argparse.Namespace, key_present
     out = []
     lim = definition["limits"]
     if definition["status"] != "locked" or lim["budget_usd_per_run"] is None or lim["max_total_computed_usd"] is None:
-        out.append("the definition is not locked: budgets are null until an approved real-API calibration sets them")
+        out.append(f"the definition is not locked or a budget is unset (status {definition['status']!r}): locking is a separate, explicit approval and a draft can never spend")
     if args.approve_spend != lim["max_total_computed_usd"]:
         out.append("--approve-spend must equal the definition's max_total_computed_usd exactly")
     for flag, name in ((args.approve_pulls, "--approve-pulls"), (args.approve_controls, "--approve-controls")):

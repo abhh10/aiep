@@ -43,8 +43,15 @@ APPROVED_BUDGET, APPROVED_CAP = "0.18", "3.84"  # the operator-approved E1 budge
 
 
 def committed_e1_expected():
-    """What the committed E1 file must be: the builder's draft template with ONLY the approved budgets applied, the file's own budget_planning_note (its content is asserted separately) and the
-    definition hash recomputed with the canonical implementation. No hash is hard-coded here, so the test cannot go stale when the note or budgets are revised through the proper rehash."""
+    """What the committed E1 file must be: the builder's draft template with ONLY the approved budgets applied, status "locked", the file's own budget_planning_note (its content is asserted
+    separately) and the definition hash recomputed with the canonical implementation. No hash is hard-coded here, so the test cannot go stale when the note or budgets are revised through the proper rehash.
+    ``draft_with_budgets()`` is the same file as a DRAFT: the only differences are those three fields."""
+    d = draft_with_budgets()
+    d["status"] = "locked"
+    return rehash(d)
+
+
+def draft_with_budgets():
     d = fresh()
     d["limits"]["budget_usd_per_run"], d["limits"]["max_total_computed_usd"] = APPROVED_BUDGET, APPROVED_CAP
     d["limits"]["budget_planning_note"] = json.loads(E1_FILE.read_text())["limits"]["budget_planning_note"]
@@ -52,23 +59,39 @@ def committed_e1_expected():
 
 
 # ---------------------------------------------------------------- the definition
-def test_the_committed_e1_file_is_the_builders_draft_plus_the_approved_budgets_and_validates():
+def test_the_committed_e1_file_is_the_builders_template_plus_the_approved_budgets_locked_and_validates():
     on_disk = json.loads(E1_FILE.read_text())
     assert on_disk == committed_e1_expected() and problems(on_disk) == []
     assert on_disk["definition_sha256"] == definition_hash(on_disk)
-    assert on_disk["status"] == "draft" and on_disk["kind"] == "exploratory_ab" and on_disk["experiment_id"] == E1_ID != V2["experiment_id"]  # budgets set, NOT locked
+    assert on_disk["status"] == "locked" and on_disk["kind"] == "exploratory_ab" and on_disk["experiment_id"] == E1_ID != V2["experiment_id"]
     assert on_disk["limits"]["budget_usd_per_run"] == APPROVED_BUDGET and on_disk["limits"]["max_total_computed_usd"] == APPROVED_CAP
     assert fresh()["limits"]["budget_usd_per_run"] is None and fresh()["limits"]["max_total_computed_usd"] is None  # the builder's template stays null
+    require_locked(on_disk)  # a locked definition with both budgets passes the lock check ...
+    draft = draft_with_budgets()
     with pytest.raises(ExperimentError):
-        require_locked(on_disk)  # approved budgets authorize nothing: a draft cannot spend
+        require_locked(draft)  # ... and the same definition as a DRAFT still cannot spend: only the lock changes this
+
+
+def test_the_lock_changes_only_the_status_and_hash_and_nothing_of_the_design():
+    on_disk, draft = json.loads(E1_FILE.read_text()), draft_with_budgets()
+    assert draft["status"] == "draft" and problems(draft) == []
+    assert sorted(k for k in on_disk if on_disk[k] != draft[k]) == ["definition_sha256", "status"]  # against the same definition as a draft (same note; the note's text is asserted in its own test)
+    assert {k: v for k, v in on_disk["limits"].items() if k != "budget_planning_note"} == {k: v for k, v in draft["limits"].items() if k != "budget_planning_note"}
+    assert on_disk["design"] == draft["design"] and on_disk["preregistration"] == draft["preregistration"] and on_disk["prompt_set"] == draft["prompt_set"] and on_disk["model"] == draft["model"]
+    assert on_disk["limits"]["overshoot_allowance_usd"] == "0.30" and on_disk["limits"]["protected_reserve_usd"] == "0.50"
+    assert on_disk["design"]["pair_gap_s"] == 600 and on_disk["limits"]["wall_clock_s"] == 1800 and on_disk["limits"]["gateway_max_concurrent"] == 1
+    s1, s2 = on_disk["design"]["stages"]
+    assert s1["activation"] == "required" and s2["activation"] == "conditional" and s1["tasks"] == [SYMPY, D13933, D15851, SY22714] and s2["tasks"] == [SPHINX, REQ]
+    assert s1["first_arm"] == {SYMPY: "A", D13933: "B", D15851: "B", SY22714: "A"}
+    assert s2["conditional_tasks"][0]["decision_record"]["status"] == "pending"  # Stage 2 stays conditional: its compatibility decision is still unrecorded
 
 
 def test_the_budget_planning_note_states_the_approved_figures_and_that_nothing_is_authorized():
     d = json.loads(E1_FILE.read_text())
     note, lim = d["limits"]["budget_planning_note"], d["limits"]
-    for must in ("0.18", "3.84", "PROVISIONAL 0.30", "4 pairs x 2 runs x (0.18 + 0.30) = 3.84", "no reservation slack", "do NOT authorize execution", "remains a draft", "not locked", "never raised silently"):
+    for must in ("0.18", "3.84", "PROVISIONAL 0.30", "4 pairs x 2 runs x (0.18 + 0.30) = 3.84", "no reservation slack", "do NOT authorize execution", "LOCKED", "by themselves", "Console billing check", "never raised silently"):
         assert must in note, must
-    assert "UNSET" not in note
+    assert "UNSET" not in note and "remains a draft" not in note and "not locked" not in note  # the note describes the locked file
     assert Decimal(APPROVED_CAP) == guaranteed_reservation_usd(d) == 4 * 2 * (Decimal(APPROVED_BUDGET) + Decimal(lim["overshoot_allowance_usd"]))  # exactly funded: zero slack
 
 
@@ -404,7 +427,48 @@ def test_a_draft_exploratory_definition_cannot_spend(tmp_path):
 
 
 def test_the_plan_describes_an_exploratory_study(tmp_path):
-    assert "exploratory study" in mb.plan(fresh())[0] and "12 scheduled runs" in mb.plan(fresh())[0]
+    assert "exploratory study" in mb.plan(fresh())[0] and "12 scheduled runs" in mb.plan(fresh())[0]  # the definition's own total, still reported
+
+
+def test_the_stage_1_plan_reports_the_active_counts_apart_from_the_definition_totals():
+    """The header used to say "6 blocks, 12 scheduled runs" for a Stage 1 plan: those were the DEFINITION's totals (Stage 2's two pairs included), not what --stages 1 runs."""
+    lines = mb.plan(locked(budget=APPROVED_BUDGET, cap=APPROVED_CAP))
+    head = lines[0]
+    assert "active stages [1] of [1, 2]" in head and "4 blocks = 4 pairs, 8 scheduled scored agent runs" in head and "6 blocks, 12 scheduled runs in total" in head and "INACTIVE" in head
+    blocks = [x for x in lines if x.startswith("block ")]
+    assert [b.split(":")[0] for b in blocks] == [f"block {t}" for t in (SYMPY, D13933, D15851, SY22714, SPHINX, REQ)]
+    assert all("INACTIVE (stage 2)" in b for b in blocks[4:]) and all("INACTIVE" not in b and "gold control, no-op control" in b for b in blocks[:4])
+    counts = next(x for x in lines if x.startswith("counts for the active stages"))
+    assert "4 pairs, 8 scored agent runs" in counts and "8 evaluator controls" in counts and "not agent runs" in counts and "never become result rows" in counts
+    both = mb.plan(locked(budget=APPROVED_BUDGET, cap=APPROVED_CAP), (1, 2))
+    assert "6 blocks, 12 scheduled runs)" in both[0] and "INACTIVE" not in " ".join(both)
+    assert "6 pairs, 12 scored agent runs" in next(x for x in both if x.startswith("counts")) and "12 evaluator controls" in next(x for x in both if x.startswith("counts"))
+
+
+class Counting(Fake):
+    def grade_control(self, t, kind):
+        self.log.append(("control", t, kind))
+        return super().grade_control(t, kind)
+
+    def grade_run(self, t, rd, slot):
+        self.log.append(("grade", slot))
+        return super().grade_run(t, rd, slot)
+
+
+def test_stage_1_executes_exactly_eight_scored_runs_with_eight_controls_counted_separately(tmp_path):
+    d = json.loads(E1_FILE.read_text())  # the real committed (locked) definition
+    f = Counting(cost="0.05")
+    st = go(tmp_path, f, d)
+    runs = f.runs()
+    assert st["status"] == "complete_with_unrun_stages" and len(runs) == 8 and len(set(runs)) == 8
+    assert runs == [r["slot_id"] for r in d["design"]["schedule"] if r["stage"] == 1]  # exactly the Stage 1 slots, in the registered A/B order
+    assert [short(x) for x in runs] == [f"{SYMPY}/A", f"{SYMPY}/B", f"{D13933}/B", f"{D13933}/A", f"{D15851}/B", f"{D15851}/A", f"{SY22714}/A", f"{SY22714}/B"]
+    controls = [x for x in f.log if x[0] == "control"]
+    assert len(controls) == 8 and sorted((t, k) for _, t, k in controls) == sorted((t, k) for t in (SYMPY, D13933, D15851, SY22714) for k in ("gold", "noop"))
+    assert len([x for x in f.log if x[0] == "grade"]) == 8 and [x[1] for x in f.log if x[0] == "grade"] == runs  # one grading per scored run
+    assert not any(SPHINX in str(x) or REQ in str(x) for x in f.log)  # stage 2 is never prepared, controlled or run
+    assert len((tmp_path / "r.jsonl").read_text().splitlines()) == 8  # only the 8 scored runs became result rows; controls produced none
+    assert st["reservations"] and len(st["reservations"]) == 4 and all(r["reservation_usd"] == "0.96" for r in st["reservations"])  # 4 pairs x 2 x (0.18 + 0.30)
 
 
 # ---------------------------------------------------------------- analysis
@@ -768,21 +832,27 @@ def test_the_builder_refuses_stages_that_are_not_exactly_the_eligible_tasks(monk
         eb.build_exploratory_definition(V2)
 
 
-def test_regenerated_e1_is_still_a_draft_with_the_approved_budgets_and_v1_v2_are_unchanged():
+def test_regenerated_e1_is_locked_with_the_approved_budgets_and_v1_v2_are_unchanged():
     on_disk = json.loads(E1_FILE.read_text())
-    assert on_disk == committed_e1_expected() and on_disk["status"] == "draft" and on_disk["limits"]["budget_usd_per_run"] == APPROVED_BUDGET and on_disk["limits"]["max_total_computed_usd"] == APPROVED_CAP
+    assert on_disk == committed_e1_expected() and on_disk["status"] == "locked" and on_disk["limits"]["budget_usd_per_run"] == APPROVED_BUDGET and on_disk["limits"]["max_total_computed_usd"] == APPROVED_CAP
     assert problems(on_disk) == [] and on_disk["metrics"]["transcript_parser_version"] == PARSER_VERSION
     assert V2["definition_sha256"].startswith("590536ec") and "small" not in on_disk["claim_scope"]
 
 
 # ---------------------------------------------------------------- the driver
-def test_driver_stages_flag_default_plan_and_refusals(capsys, monkeypatch):
+def test_driver_stages_flag_default_plan_and_refusals(capsys, monkeypatch, tmp_path):
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     import run_m3_pilot as drv
     base = ["--definition", str(E1_FILE)]
     assert drv.main(base, env={}) == 0
     out = capsys.readouterr().out
-    assert "active stages [1] of [1, 2]" in out and "exploratory study" in out and "blocker: the definition is not locked" in out
+    assert "active stages [1] of [1, 2]" in out and "exploratory study" in out and "status=locked" in out
+    assert "the definition is not locked" not in out and "null until" not in out  # a locked definition with budgets has no lock blocker (and the stale wording is gone)
+    draft_path = tmp_path / "e1-draft.json"
+    draft_path.write_text(json.dumps(draft_with_budgets(), indent=2, sort_keys=True) + "\n")
+    assert drv.main(["--definition", str(draft_path)], env={}) == 0
+    out = capsys.readouterr().out
+    assert "status=draft" in out and "blocker: the definition is not locked or a budget is unset (status 'draft')" in out and "null until" not in out  # a DRAFT still cannot spend
     assert drv.main(base + ["--stages", "1", "2"], env={}) == 0 and "active stages [1, 2] of [1, 2]" in capsys.readouterr().out
     assert drv.main(base + ["--stages", "2", "1", "1"], env={}) == 0 and "active stages [1, 2]" in capsys.readouterr().out  # normalised: sorted, unique
     assert drv.main(base + ["--stages", "2"], env={}) == 2 and "stage_selection_invalid" in capsys.readouterr().err
@@ -861,7 +931,7 @@ def test_the_builder_does_not_change_its_input_and_repeated_builds_are_independe
 def test_after_the_aliasing_fix_e1_is_unchanged_and_still_valid():
     e1 = json.loads(E1_FILE.read_text())
     assert e1 == committed_e1_expected() and e1["definition_sha256"] == definition_hash(e1)
-    assert problems(e1) == [] and e1["claim_scope"] == EXPLORATORY_CLAIM_SCOPE and e1["status"] == "draft"
+    assert problems(e1) == [] and e1["claim_scope"] == EXPLORATORY_CLAIM_SCOPE and e1["status"] == "locked"
     assert e1["limits"]["budget_usd_per_run"] == APPROVED_BUDGET and e1["limits"]["max_total_computed_usd"] == APPROVED_CAP
     assert fresh()["limits"]["budget_usd_per_run"] is None and fresh()["limits"]["max_total_computed_usd"] is None  # the aliasing fix left the builder's null-budget template alone
     assert e1["metrics"]["transcript_parser_version"] == PARSER_VERSION and [s["tasks"] for s in e1["design"]["stages"]] == [list(s["tasks"]) for s in E1_STAGES]
