@@ -1,5 +1,7 @@
 # M2 Phase 2 design: injection-based agent and gateway containers
 
+> **Historical design document (2026-11-19/20); kept unchanged below.** Its status lines ("NOT Docker-validated", "unverified", "fake-tested only") describe the state when it was written. Since then the lifecycle has run against real Docker (validation: `docs/M2_EGRESS_ARCHITECTURE.md`, `scripts/m2_egress_validation.py`) and with the real API (two calibration runs and E1 Stage 1). Read `docs/ARCHITECTURE.md` for the current design; where this document and the code disagree, the code and that document are authoritative.
+
 > **Superseded in part (2026-11-20):** the gateway no longer has an egress-capable network. The current topology (agent-net, proxy-net, egress-net with a restricted CONNECT proxy) is in `docs/M2_EGRESS_ARCHITECTURE.md`; statements below about attaching an egress network to the gateway describe the earlier design.
 
 

@@ -1,5 +1,7 @@
 # M2 to M1 evaluator handoff
 
+> **Historical document (written 2026-11-20); kept unchanged below.** Its status line ("the evaluator cannot grade yet") describes that date: since then the stock evaluator has graded the E1 Stage 1 runs and controls, while the hardened evaluator described here remains non-operational (its wheelhouse is empty). Current capabilities, validation status and limitations are described in `README.md` and `docs/ARCHITECTURE.md`.
+
 Status (2026-11-20): handoff validation is implemented and tested against the real mock-integration run; **the evaluator cannot grade yet** (section 4). Nothing here grades a task, downloads anything or changes an evaluator.
 
 ## 1. Evaluator architecture

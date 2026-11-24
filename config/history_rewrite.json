@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "purpose": "Maps commits of the original, unpublished development history to their equivalents in this repository's published history, which was rewritten before release to remove private working notes and personal details. Used by the evidence builder and verifier; see docs/HISTORY_REWRITE.md.",
+  "mappings": [
+    {
+      "original_commit": "28e758e5f3ccf4598fe843fe4a3abbed3628eb83",
+      "public_commit": "087d65da7431d24ce14d882ddc28ae7354b7a3a3",
+      "role": "harness commit at which the E1 Stage 1 experiment was executed",
+      "tree_difference": "The public commit's tree differs from the original only by the removal of five private working notes and the sanitization of two files (docs/PROJECT_STATUS.md, scripts/m1_eval.sh). All source code, configuration and tests that the experiment executed are identical."
+    }
+  ]
+}

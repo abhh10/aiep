@@ -1,5 +1,7 @@
 # M2 Gate 0 notes: code for the first real Claude run (no Docker, no network, no spend)
 
+> **Historical document (an early M2 stage); kept unchanged below.** It records the state before any real Docker validation or real API request: statements such as "nothing here has run against Docker, the gateway or Anthropic" describe that stage and are no longer current. Current capabilities, validation status and limitations are described in `README.md` and `docs/ARCHITECTURE.md`.
+
 Status: implemented and fake-tested. **Nothing here has run against Docker, the gateway or Anthropic.** The Claude binary is not
 downloaded, the gateway image is not pulled, and no key exists. Every Docker step is a later, separately approved gate.
 

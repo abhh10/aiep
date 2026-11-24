@@ -319,11 +319,13 @@ def test_m1_files_are_untouched():
     import subprocess
 
     out = subprocess.run(
-        ["git", "diff", "--stat", "9c84d4d", "--",
+        ["git", "diff", "--stat", "5bae33a", "--",
          "scripts/m1_eval.sh", "tests/test_stock_eval.py", "docs/M1_RESULTS.md"],
         cwd=REAL, capture_output=True, text=True,
     )
     assert out.returncode == 0 and out.stdout.strip() == ""
+    # the pre-publication sanitization made the M1 driver portable (no hard-coded checkout path); the pinned commit above is the sanitized M1 commit
+    assert "/Users/" not in (REAL / "scripts" / "m1_eval.sh").read_text()
 
 
 def test_stock_eval_keeps_its_m1_container_hardening_byte_for_byte_and_only_gained_the_image_guard():
@@ -331,7 +333,7 @@ def test_stock_eval_keeps_its_m1_container_hardening_byte_for_byte_and_only_gain
     import ast
     import subprocess
 
-    old = subprocess.run(["git", "show", "9c84d4d:src/aiep/stock_eval.py"], cwd=REAL, capture_output=True, text=True)
+    old = subprocess.run(["git", "show", "5bae33a:src/aiep/stock_eval.py"], cwd=REAL, capture_output=True, text=True)
     assert old.returncode == 0
     new_src = (REAL / "src" / "aiep" / "stock_eval.py").read_text()
 

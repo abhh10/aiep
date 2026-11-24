@@ -1,5 +1,7 @@
 # M2 Phase 1 notes: trusted components (no Docker, no network, no spend)
 
+> **Historical document (M2 Phase 1); kept unchanged below.** It records an earlier development stage in which the components were tested with fakes only. Its status statements describe that stage and are no longer current. Current capabilities, validation status and limitations are described in `README.md` and `docs/ARCHITECTURE.md`.
+
 > **Superseded in part (2026-11-20):** the gateway no longer has an egress-capable network. The current topology (agent-net, proxy-net, egress-net with a restricted CONNECT proxy) is in `docs/M2_EGRESS_ARCHITECTURE.md`; statements below about attaching an egress network to the gateway describe the earlier design.
 
 

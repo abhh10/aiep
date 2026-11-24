@@ -110,6 +110,8 @@ def test_script_plan_prints_sixteen_slots_with_the_v2_ids(capsys):
     assert out.count("m3-pilot-v2/") == 16 and "m3-pilot-v1" not in out
 
 
+@pytest.mark.skipif(not (ROOT / ".cache" / "hf" / "hub" / "datasets--SWE-bench--SWE-bench_Lite" / "refs" / "main").is_file(),
+                    reason="the build step reads the pinned local dataset snapshot (.cache/hf, git-ignored); a fresh clone does not have it")
 def test_script_never_overwrites_an_existing_definition(capsys):
     before = V2.read_bytes()
     assert _script().main(["build", "--write"]) == 2 and V2.read_bytes() == before

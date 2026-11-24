@@ -1,12 +1,24 @@
 # M3 experiment design (feasibility pilot)
 
 **This is a feasibility pilot (8 tasks, one run per arm per task). It is not a statistically powered effectiveness study.** A paired binary comparison needs
-roughly 190 tasks to detect a 10-point difference (25% discordant pairs); everything the analysis prints is descriptive.
+roughly 190 tasks to detect a 10-point difference (25% discordant pairs); everything the analysis prints is descriptive. *[Update: the 190 figure is carried over from the original design; its significance level, power and formula are not recorded in this repository, so treat it as indicative only. E1 Stage 1 has 4 tasks and supports no inference.]*
+
+## Execution status (updated 2026-11-24)
+
+This document was written as the design for an 8-task feasibility pilot, before any M3 run existed. The design below is kept as written. Several of its sentences describe that earlier state ("no API request has happened", "mocks only", "not yet executed"); they are marked inline with **[Update]** notes and summarized here.
+
+- **What was actually run.** Not the 8-task pilot. After two authorized real-API calibration runs (`runs/calibration/`: `m3-calibration-1`, Config A, 5 requests, and `m3-calibration-2`, Config B, 7 requests; about $0.0906 gateway-computed in total; never scored), the project defined and locked a smaller, budget-constrained exploratory study, `config/experiments/e1-exploratory-1.json` (derived from `m3-pilot-v2`; budgets $0.18 per run and $3.84 total; the $5 prepaid credit could not be increased).
+- **E1 Stage 1 was executed on 2026-11-23** with explicit approvals: 4 tasks (sympy-18621, django-13933, django-15851, sympy-22714), one run per arm per task, so 8 scored runs, plus 8 gold and no-op evaluator controls, all of which passed. 34 API requests, $0.2337872 gateway-computed (not Console billing). All 4 tasks resolved in both arms. Config B started a test runner in 4 of 4 runs and Config A in 0 of 4. No confirmed fix-revision cycle occurred. This is an exploratory feasibility result, not evidence about effectiveness. See `docs/research/E1_STAGE1_REPORT.md`.
+- **Not run.** E1 Stage 2 (sphinx-10325, requests-863) is conditional, unprepared and was never activated. `m3-pilot-v1.json` and `m3-pilot-v2.json` are preserved unchanged as superseded drafts; **neither was ever run**.
+- **Still true as written below:** the hardened `aiep.evaluator` has never graded anything (its wheelhouse is empty); every grading used the stock evaluator wrapper `aiep.stock_eval`. No task has been replaced.
+
+### Original status when this document was written (before any M3 run; historical)
 
 Status: implemented and unit-tested with fakes only. No API request, image download, control run, agent run or grading has happened for M3.
 The CURRENT definition is `config/experiments/m3-pilot-v2.json` (`draft`, hash in `scripts/m3_experiment.py validate`): budgets are `null`, so nothing can spend until an approved
 real-API calibration sets `budget_usd_per_run` and `max_total_computed_usd` and the definition is re-hashed and locked. `m3-pilot-v1.json` is preserved UNCHANGED as a superseded,
 never-run draft (sha256 `f2ae65e5...`); the batch refuses to execute it (it does not register the M3.7 stop conditions). See "M3.7 fixes" below.
+*[Update: the "current definition" is now `e1-exploratory-1` (locked), as described above; `m3-pilot-v2.json` remains a draft that was never run.]*
 
 ## Definition (`src/aiep/experiment_def.py`, built by `scripts/m3_experiment.py build`)
 Self-hashed JSON: experiment id, `claim_scope`, prompt set (v2 hashes), model, Claude CLI sha256, dataset revision, pre-registration (seed, selection rules, pool
@@ -30,7 +42,7 @@ Halts (need `--ack-halt <id>` to continue): accounting_incomplete, disk_start_ga
 control_replacement_exhausted, consecutive_invalid_runs, grading_invalid, task_not_prepared, orchestrator_error. State is bound to the definition hash.
 The 16 GiB start gate and 12 GiB hard stop are unchanged (a test compares them with `m1_eval.sh`). The real wiring of `Steps` to Docker, the gateway and the
 evaluator is intentionally not included: the per-task scripts (`pull_task_image.py` with an explicit approval flag, `pin_task_image.py`, `extract_task_seed.py`,
-`verify_task_identity.py`, `m3_grade.py`) are the approval-gated building blocks.
+`verify_task_identity.py`, `m3_grade.py`) are the approval-gated building blocks. *[Update: that wiring was added afterwards (M3.6 below: `m3_steps.RealSteps` and `scripts/run_m3_pilot.py`) and was used for E1 Stage 1.]*
 
 ## Financial safety
 The gateway budget is a SOFT limit, not a guaranteed maximum liability. `AIEP_MAX_CONCURRENT=1` (default stays 2) gives one request in flight per agent; this bounds,
@@ -44,7 +56,7 @@ graded cleanly), each with the 2x2 concordant/discordant table, exact McNemar, s
 compliance. Transcript metrics (`transcript.py`) use pre-registered definitions: test run, test-fix cycle (failed run then an edit), compliance (B: cycles <= 5).
 
 ## M3.6 operational integration (implemented; validated with fakes only)
-`m3_steps.RealSteps` wires the batch to the existing components through injected callables; `scripts/run_m3_pilot.py` supplies the real ones (never executed so far).
+`m3_steps.RealSteps` wires the batch to the existing components through injected callables; `scripts/run_m3_pilot.py` supplies the real ones (never executed so far). *[Update: executed for E1 Stage 1 on 2026-11-23.]*
 - **Schedule:** `run_pilot` first re-hashes the definition and re-derives the schedule from the registered seed and tasks; any difference halts (`definition_invalid`) before a step runs. Blocks and slots come from the registered schedule; a replacement changes only the task id inside its slot (same `order_index`, arm, position).
 - **Identity:** each slot's `{experiment_id, task_id, arm, repetition, pair_id, order_index, slot_id}` goes into `m2_run.prepare` -> `run.json` -> handoff (checked against the schedule) -> results row (checked again by the batch, `identity_mismatch` halts).
 - **Fresh per arm:** every arm calls `prepare` (seed re-loaded and hash-verified from its pin, new containers, new run id); `execute` still owns networks, lease and teardown.
@@ -54,7 +66,7 @@ compliance. Transcript metrics (`transcript.py`) use pre-registered definitions:
 - **Images:** removed only after both slots of the block have result rows, only if this batch pulled the image, only by exact pinned ID, and never while a container uses it (`image_still_required`). A failed removal is retried on resume without re-running anything.
 - **Accounting:** unchanged. The cost cap uses the existing soft-budget exposure estimate.
 
-Mocked validation: `tests/test_m3_integration.py` drives the real batch, `RealSteps`, pins, results builder, transcript parser and analysis against fake Docker, agent, evaluator and handoff. Not validated against reality: the Docker pull/pin/extract/identity calls, `m2_run.execute` under the batch, the real handoff and `grading.grade` inside the batch, and Claude's actual transcript format for B-arm test runs.
+Mocked validation: `tests/test_m3_integration.py` drives the real batch, `RealSteps`, pins, results builder, transcript parser and analysis against fake Docker, agent, evaluator and handoff. Not validated against reality: the Docker pull/pin/extract/identity calls, `m2_run.execute` under the batch, the real handoff and `grading.grade` inside the batch, and Claude's actual transcript format for B-arm test runs. *[Update: all of these paths were exercised for real in E1 Stage 1. Its 8 transcripts parsed completely with 0 ambiguous sequences. The mocked-validation statement above describes the state when it was written.]*
 
 ## M3.7 fixes (operational-readiness audit; implemented, unit-tested with fakes only)
 Why `m3-pilot-v2`: two defects lived inside the hashed v1 definition, so v1 was superseded by a new id before any run instead of being edited. v2 keeps the 8 tasks, the 12
@@ -74,30 +86,30 @@ and the `supersedes` block (reason, changes, what is unchanged).
 * **Defect 2, test-command detection** (`transcript.py`, `TEST_COMMAND_SPEC`): shell commands are parsed into simple commands; the executable position decides. Runner words that are
   arguments of grep/echo/cat/pip/git no longer count; absolute-path pytest, `./tests/runtests.py`, `setup.py test`, `sympy.test(...)` and common wrappers now count. Running a test
   file directly with python is deliberately not counted. The real Claude Code 2.1.328 `tool_result` shape (`is_error`, subagent `parent_tool_use_id`) is STILL UNVERIFIED against a real
-  transcript; the parser tolerates string and list content and a missing `is_error`.
+  transcript; the parser tolerates string and list content and a missing `is_error`. *[Update: real transcripts have since been parsed (calibration and E1 Stage 1).]*
 * **DRIVER_INSTANCE** (`handoff.evaluator_support`): the flag is now raised only for a task that is neither the M1 driver's instance nor registered (pinned image, seed, verified identity).
   M1/M2 behaviour is unchanged.
 * **Preparation only** (`run_m3_pilot.py --prepare-only --task <id> [--approve-pulls]`): pull (if not local, above the 16 GiB gate), pin, seed (with the base-commit check), identity.
   No agent, API, key, evaluator or image removal; it refuses to combine with any execution, spend, control or removal flag.
 * **No-op control** (`grading.noop_prediction`, `scripts/m3_noop_predictions.py`, `m3_grade.py <id> <run_id> noop`): deterministic bytes (`NOOP_PATCH_SHA256`), a truthful `index` line,
   never overwritten. The earlier handoff text said its index line was `e69de29` (the empty blob) although the file has one line; it is now git's real blob id for the content.
-  The control patch has still never been run through the evaluator.
+  The control patch has still never been run through the evaluator. *[Update: no-op controls have since been run through the stock evaluator: four in the E1 Stage 1 batch, one per task, all unresolved as required, with earlier preparation controls recorded under `runs/m1/`.]*
 
-## Digest-pinned image preparation (implemented; mocks only, no image prepared yet)
+## Digest-pinned image preparation (implemented; mocks only, no image prepared yet) *[Update: all four E1 Stage 1 images have since been pulled by digest and prepared]*
 The task images are published under the mutable tag `:latest`. `config/image_digests.json` (separate from the hashed definition) holds, per task, the verified OCI index digest, the linux/amd64
-platform manifest digest, config and layer digests and sizes, and provenance; today it contains ONLY `sympy__sympy-18621` (verified 2026-11-22). `aiep.image_digests` loads a record
+platform manifest digest, config and layer digests and sizes, and provenance; today it contains ONLY `sympy__sympy-18621` (verified 2026-11-22) *[Update: it now holds the four Stage 1 tasks]*. `aiep.image_digests` loads a record
 (missing, malformed or inconsistent records fail closed), re-verifies it against the registry before a pull (index body hash and digest header, exactly one linux/amd64 entry equal to the
 recorded platform manifest, platform manifest body hash and header, config and layers), pulls `<repository>@<index digest>` for linux/amd64, and requires the local image ID to equal the
 index digest. `prepare_pinned_task`, the pull wrapper (`scripts/pull_task_image.py`), `pin_image` and the batch's image-removal lookup all use that one reference; the pin records it as
 `digest_reference`. No code path pulls or looks up by tag, and nothing creates a `:latest` tag. The stock evaluator still looks its image up by the `:latest` NAME (`grading.grade`
-checks `image_id_of(<repository>:latest)`), so a digest-only image cannot be graded until a separate, approved step adds that local tag; that is deliberately not done here.
+checks `image_id_of(<repository>:latest)`), so a digest-only image cannot be graded until a separate, approved step adds that local tag; that is deliberately not done here. *[Update: the project's status notes record that this step was later done, with `docker tag`, for the three images that lacked a local `:latest` tag. That is Docker state, not in Git.]*
 Adding a task needs its record resolved and verified first (a `scripts/` resolver for that is not written yet; records so far were produced by hand from anonymous manifest requests).
 
 ## Seed archive limit (160 MiB) and the agent /testbed tmpfs (256 MiB); measured for the four E1 Stage 1 tasks
 `task_setup.MAX_ARCHIVE_BYTES` is the raw-tar limit when a task's `/testbed` is extracted into a seed. History: 64 MiB (a placeholder sized for pytest-5227, 17.4 MiB), then 128 MiB (validated for `sympy__sympy-18621` only), now **160 MiB**. The agent's `/testbed` tmpfs
 (`agent_runner.AgentRunSpec.testbed_size`) was 192 MiB and is now **256 MiB**. Both changes are code constants, not part of the hashed E1 definition, so its hash is unchanged; they apply identically to both arms and to every task.
 
-**Measured** (one-off, read-only probes of each pulled image: a never-started hardened container, `/testbed` streamed through a byte counter, nothing saved; none of these tasks has been prepared):
+**Measured** (one-off, read-only probes of each pulled image: a never-started hardened container, `/testbed` streamed through a byte counter, nothing saved; none of these tasks has been prepared; *[Update: all four have since been prepared and used in E1 Stage 1]*):
 
 | Task | Raw archive | Largest file (the `.git` pack) | Page-rounded `/testbed` footprint | Headroom in 256 MiB |
 |---|---|---|---|---|
@@ -149,7 +161,7 @@ registry, the block assignments and that no replacement is a selected task or us
 (its block now runs the replacement; its own pins are still incomplete, and `task_prepared` also requires the exact pinned image). An image pulled by a failed preparation is never removed by the batch.
 
 **Scope and limits.** The replacement is recorded by the batch, in its state, never by editing the definition. `--prepare-only` only reports a failure; it records no replacement, so a task that failed there is replaced when the batch next prepares it (and fails the same way), under the
-batch's pull and control approvals. The control-failure and compatibility triggers use the same code path and are unchanged (they are labelled `control` and `compatibility` in the record), and Stage 2 still starts only by explicit activation. No real replacement has occurred.
+batch's pull and control approvals. The control-failure and compatibility triggers use the same code path and are unchanged (they are labelled `control` and `compatibility` in the record), and Stage 2 still starts only by explicit activation. No real replacement has occurred. *[Update: still true after E1 Stage 1: the batch state records no replacements.]*
 
 ## Evaluator image policy (fail closed)
 The upstream harness falls back to `client.images.pull(test_spec.image)` when its image is missing locally. `aiep.stock_eval.main` now installs `install_image_guard()` BEFORE importing or running the
@@ -161,9 +173,9 @@ harness: `ImageCollection.pull/build/load` and the low-level `pull`, `build`, `l
 `ImageCollection.pull/build/load/push` only: it does not cover the low-level API and refuses with an ordinary exception that the harness's `except Exception` would convert, so it should adopt this
 guard before it is ever used; (3) `images.tag`, `remove_image` and `commit` are not blocked (the harness does not use them).
 
-## Calibration run `m3-calibration-1` (prepared; NOT yet executed)
+## Calibration run `m3-calibration-1` (prepared; NOT yet executed) *[Update: executed on 2026-11-22, together with a second run, `m3-calibration-2` (Config B). Neither is an A/B observation and both are excluded from scoring.]*
 Purpose: measure real cost, duration, request count and token usage (input, output, cache read, cache write) for one agent run, to set the pilot's `budget_usd_per_run` and `max_total_computed_usd`. It is NOT an A/B
-observation. Planned configuration: task `sympy__sympy-18621`, Config A, gateway budget $2.00 (Claude Code's `--max-budget-usd` becomes the client estimate $2.2), concurrency 1, wall clock 1,200 s,
+observation. Planned configuration *[calibration-1 ran with the planned $2.00 budget: 5 requests, about $0.0402 gateway-computed; calibration-2 (Config B, gateway budget $0.75) made 7 requests, about $0.0504; see `runs/calibration/`]*: task `sympy__sympy-18621`, Config A, gateway budget $2.00 (Claude Code's `--max-budget-usd` becomes the client estimate $2.2), concurrency 1, wall clock 1,200 s,
 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 64,000 (the pilot's own setting, so the measurement matches the pilot).
 
 **The limits are not hard spending limits.** The gateway budget is SOFT: usage is known only after a response, so a run can end above the budget by the cost of the request in flight (output at most $0.64 at

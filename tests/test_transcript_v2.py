@@ -41,7 +41,7 @@ PYTEST_MISSING = "/opt/miniconda3/envs/testbed/bin/python: No module named pytes
 CAL2_EDIT_AND_PYTEST = """python - <<'E'
 p='sympy/matrices/expressions/blockmatrix.py'
 s=open(p).read()
-s=s.replace(\"\"\"        return ImmutableDenseMatrix(data)\"\"\",\"\"\"        return ImmutableDenseMatrix(data, evaluate=False)\"\"\")
+s=s.replace(\"\"\"        return old_expression(data)\"\"\",\"\"\"        return new_expression(data, flag=True)\"\"\")  # synthetic text: only the heredoc and the file write matter to the parser
 open(p,'w').write(s)
 E
 python -c "

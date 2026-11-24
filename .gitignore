@@ -10,3 +10,5 @@ logs/
 .env
 .env.*
 *.key
+# the committed, sanitized E1 Stage 1 evidence bundle has a runs/ subdirectory that the runs/ rule above would otherwise hide
+!/evidence/e1-stage1/runs/

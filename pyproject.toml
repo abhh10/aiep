@@ -2,6 +2,7 @@
 name = "aiep"
 version = "0.0.1"
 description = "Local harness for evaluating coding agents on SWE-bench Lite tasks."
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
     "swebench==5.0.2",
