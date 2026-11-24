@@ -1,0 +1,751 @@
+{
+  "grading": {
+    "container_policy": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "mem_limit": "2g",
+      "nano_cpus": 2000000000,
+      "pids_limit": 1024,
+      "security_opt": [
+        "no-new-privileges"
+      ],
+      "user": "root"
+    },
+    "errors": 0,
+    "evaluation_kind": "scored",
+    "evaluator_image_id": "sha256:aa80884e053cf1a238df7c4ceec43e4e07929547f658278bd3c3154f0ef8bc90",
+    "evaluator_image_name": "swebench/sweb.eval.x86_64.django_1776_django-15851:latest",
+    "evaluator_patch_sha256": "d0dbfb73c1136aeaaeaf466b6474381b6f8da80d86537a1b9aa82ebf01ea1263",
+    "exit_code": 0,
+    "f2p_passed": 1,
+    "f2p_total": 1,
+    "hard_stop_gib": 12.0,
+    "hard_stopped": false,
+    "p2p_maintained": 8,
+    "p2p_total": 8,
+    "patch_applied": true,
+    "patch_files_applied_cleanly": 2,
+    "report_json_counts": {
+      "FAIL_TO_PASS": {
+        "failure": 0,
+        "success": 1
+      },
+      "PASS_TO_PASS": {
+        "failure": 0,
+        "success": 8
+      }
+    },
+    "report_json_flags": {
+      "infra_failure": false,
+      "patch_exists": true,
+      "patch_is_None": false,
+      "patch_successfully_applied": true,
+      "resolved": true
+    },
+    "resolved": true,
+    "runner_summary": {
+      "outcome": "OK",
+      "runner": "django_runtests",
+      "skipped": 1,
+      "tests_run": 10
+    },
+    "start_gate_gib": 16.0,
+    "valid": true
+  },
+  "handoff": {
+    "accounting_at_handoff": {
+      "budget_usd": "0.18",
+      "complete": true,
+      "computed_usd": "0.0157452",
+      "exact": true,
+      "requests": 4,
+      "tokens": {
+        "cache_read_tokens": 30292,
+        "cache_write_1h_tokens": 0,
+        "cache_write_5m_tokens": 2552,
+        "cache_write_unclassified_tokens": 0,
+        "input_tokens": 8,
+        "output_tokens": 632
+      }
+    },
+    "checks": [
+      {
+        "check": "every required artifact is present (a run with no patch has no predictions.jsonl and cannot be handed off)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "artifacts_manifest.json verifies: every file's sha256 and size match, nothing extra",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "run.json schema is the one this validator understands",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the directory name is a well-formed run id (m2-<instance>-<A|B>-<UTC stamp>)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "run.json run_id, task.instance_id and config agree with the directory name",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the model is the experiment's single pinned model",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the task has a registered evaluator image",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the agent ran in the SAME image the evaluator will use (image ID equals config/evaluator_images.json)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "predictions.jsonl is exactly one newline-terminated JSON line (the stock harness would grade every line)",
+        "detail": {
+          "lines": 1
+        },
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the prediction is a JSON object with exactly the harness keys instance_id, model_name_or_path, model_patch (all strings)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the prediction's instance_id is this run's task",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the prediction's model_name_or_path is aiep-<config>-<model>",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "model_patch is byte-identical to patch.diff",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the patch's sha256, size and status equal what the agent run recorded when it extracted it",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the patch passes the production patch validator (text, size, safe relative paths, no binary / rename / symlink / submodule)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the seed the agent started from is the pinned seed (archive sha256, HEAD, entry count)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the seed was taken from the evaluator's image",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "run.json repo and base_commit equal the dataset record's",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the pinned seed's HEAD equals the recorded seed head, and its parent is the dataset base_commit (the synthetic 'SWE-bench' commit sits on base_commit)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the exact model_patch applies cleanly (git apply --check) to a fresh copy of the pinned seed",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the run used one of the registered prompt sets",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the run used the registered prompt template and workflow line (hashes equal config/workflow_prompts.json)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the recorded prompt hash equals the sha256 of prompt.txt",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the Claude binary recorded is the pinned one (sha256, size, version, platform)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the Claude flags are exactly the experiment's flags for this model and budget (identical for A and B)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the gateway image is the pinned one",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the run carries a complete experiment identity that agrees with its task and arm",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the run's slot is a scheduled slot of the experiment with the scheduled order index and pair id",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the three AIEP networks were verified for this run",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the lifecycle completed (gateway and proxy came up; not a startup failure)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the agent run is VALID (not invalidated by a stop reason, a failed attachment / identity / injection check, or a lost lease)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "Claude Code exited on its own with status 0 (not killed, timed out, or container died)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "Claude's output was NOT truncated (a censored run is never graded)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the orchestrator was not interrupted, did not error, and did not lose its lease",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the agent's post-start network attachment check passed",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the gateway did not stop the run for a violation (model / tool / metering)",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the run was not stopped by the gateway's budget (budget_exhausted ends a run by cost, not by the agent finishing)",
+        "detail": null,
+        "ok": true,
+        "severity": "flag"
+      },
+      {
+        "check": "Claude Code's own client-side budget (a CLI estimate) did not end the run",
+        "detail": null,
+        "ok": true,
+        "severity": "flag"
+      },
+      {
+        "check": "the agent, gateway and proxy containers were all removed",
+        "detail": {
+          "agent": true,
+          "gateway": true,
+          "proxy": true
+        },
+        "ok": true,
+        "severity": "flag"
+      },
+      {
+        "check": "the gateway ledger is COMPLETE: every request it started forwarding has a finishing line (otherwise usage may have been billed that is not recorded)",
+        "detail": {
+          "complete": true,
+          "finished": 4,
+          "forwarded": 4
+        },
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the ledger recorded at least one billed request",
+        "detail": null,
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the usage figures are EXACT (no request was cut off and charged at the max_tokens upper bound)",
+        "detail": {
+          "exact": true,
+          "upper_bound_entries": 0
+        },
+        "ok": true,
+        "severity": "flag"
+      },
+      {
+        "check": "the gateway-computed cost does not exceed the configured budget (an interrupted request is charged at an upper bound that CAN exceed it)",
+        "detail": null,
+        "ok": true,
+        "severity": "flag"
+      },
+      {
+        "check": "the agent's INPUT (prompt.txt) contains no FAIL_TO_PASS / PASS_TO_PASS id, no test_patch line and no gold-patch line beyond what the public issue text itself quotes",
+        "detail": {
+          "fail_to_pass_ids": 0,
+          "gold_patch_lines": 0,
+          "pass_to_pass_ids": 0,
+          "quoted_by_the_public_issue_text": 0,
+          "test_patch_lines": 0
+        },
+        "ok": true,
+        "severity": "reject"
+      },
+      {
+        "check": "the agent's output and patch repeat no hidden-patch line or test id (informational: tests may print ids the agent legitimately ran)",
+        "detail": {
+          "fail_to_pass_ids": 0,
+          "gold_patch_lines": 0,
+          "pass_to_pass_ids": 0,
+          "test_patch_lines": 0
+        },
+        "ok": true,
+        "severity": "flag"
+      },
+      {
+        "check": "the patch does not modify a file the hidden test patch also modifies (the evaluator would overwrite it)",
+        "detail": {
+          "count": 1
+        },
+        "ok": false,
+        "severity": "flag"
+      },
+      {
+        "check": "the task is not registered for evaluation (neither the M1 driver's instance nor a task with a pinned image, seed and verified identity)",
+        "detail": null,
+        "ok": true,
+        "severity": "flag"
+      }
+    ],
+    "details_withheld_for": 40,
+    "flags": [
+      "the patch does not modify a file the hidden test patch also modifies (the evaluator would overwrite it)"
+    ],
+    "hidden_data_counts": {
+      "fail_to_pass": 1,
+      "note": "counts only: identifiers and patches are never written to this report",
+      "pass_to_pass": 8
+    },
+    "patch": {
+      "additions": 2,
+      "deletions": 2,
+      "files": 2,
+      "paths": [
+        "django/db/backends/postgresql/client.py",
+        "tests/dbshell/test_postgresql.py"
+      ],
+      "sha256": "d0dbfb73c1136aeaaeaf466b6474381b6f8da80d86537a1b9aa82ebf01ea1263",
+      "size": 1139
+    },
+    "rejections": [],
+    "report_sha256": "c8b6b3db07aff4ce9ec41fb9afb7bb9eeb37faf5253d493351e3c04899426528",
+    "status": "ready_flagged"
+  },
+  "notes": "derived summaries only; see README.md for what is a recorded summary and what is recomputable",
+  "order_index": 5,
+  "prompt": {
+    "issue_matches_public_dataset_problem_statement": true,
+    "issue_sha256": "039106fc2d8a9a55f03ed61351d9fec99ecf37f672f33da41c37042ab3658ca9",
+    "label": "B",
+    "note": "the prompt text is withheld: it embeds the public issue text, which can name third parties",
+    "prompt_bytes": 1360,
+    "prompt_sha256": "971f35861eee59d11c6d3ca28ca5d105ccdf15799af55ee61887590705be820e",
+    "template_sha256": "86571bc70d453965dfec954dae6c2e3a073bf61ddbdc2656bc7f5667846d7158",
+    "workflow_sha256": "cd6fbb95384237c2dcc399d61456ca92d746242384792f81c57217596aeb2d27"
+  },
+  "run": {
+    "accounting": {
+      "complete": true,
+      "drain": {
+        "drained": true,
+        "timed_out": false,
+        "timeout_s": 90.0,
+        "waited_s": 0.093
+      },
+      "exact": true,
+      "finished": 4,
+      "forwarded": 4,
+      "note": "every request the gateway forwarded has a finishing ledger line",
+      "readable": true,
+      "unparseable_lines": 0,
+      "unresolved": []
+    },
+    "agent": {
+      "account": "nonroot:1000:1000",
+      "claude_exit_code": 0,
+      "claude_output_truncated": false,
+      "claude_stderr_bytes": 0,
+      "claude_stdout_bytes": 18291,
+      "components_sha256": "51cfad0779a96a371267b55349201734f563e181eca1ceedfb5cce3a0e3026b5",
+      "config_label": "B",
+      "duration_s": 14.808,
+      "invalid_reason": null,
+      "oom_killed": false,
+      "patch": {
+        "reasons": [],
+        "sha256": "d0dbfb73c1136aeaaeaf466b6474381b6f8da80d86537a1b9aa82ebf01ea1263",
+        "size": 1139,
+        "status": "ok"
+      },
+      "removed": true,
+      "seed": {
+        "archive_sha256": "5bb82dc88f1bb99bbc497da64aaa9030f023a84074ecb94a6ad54aae48afb0fb",
+        "head": "ec9331c1d76135610cbfd45a0d08e3388993253a"
+      },
+      "status": "exited",
+      "stop_reason": null,
+      "survivors_after_quiesce": 0,
+      "timeline_s": {
+        "attachment_ok": 0.329,
+        "claude_ended": 33.186,
+        "claude_started": 18.378,
+        "extracted": 34.898,
+        "identity_ok": 0.518,
+        "injected": 18.344,
+        "quiesced": 33.312,
+        "running": 0.207
+      },
+      "valid": true
+    },
+    "claude_args": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--safe-mode",
+      "--permission-mode",
+      "bypassPermissions",
+      "--tools",
+      "Bash,Read,Edit,Write,Glob,Grep",
+      "--no-session-persistence",
+      "--model",
+      "claude-sonnet-5-5",
+      "--max-budget-usd",
+      "0.198"
+    ],
+    "claude_cli": {
+      "platform": "linux-x64",
+      "sha256": "a982d38030b97e750848add2cbb2df6d9a70d5544a22ca9b216a349ba25865e8",
+      "size_bytes": 373019152,
+      "version": "2.1.328"
+    },
+    "claude_pinned_env": {
+      "API_TIMEOUT_MS": "600000",
+      "BASH_DEFAULT_TIMEOUT_MS": "120000",
+      "BASH_MAX_TIMEOUT_MS": "600000",
+      "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000",
+      "CLAUDE_CODE_MAX_RETRIES": "10"
+    },
+    "config": "B",
+    "harness": {
+      "branch": "main",
+      "commit": "28e758e5f3ccf4598fe843fe4a3abbed3628eb83",
+      "dirty": false
+    },
+    "identity": {
+      "arm": "B",
+      "experiment_id": "e1-exploratory-1",
+      "order_index": 5,
+      "pair_id": "e1-exploratory-1:django__django-15851:r1",
+      "repetition": 1,
+      "slot_id": "e1-exploratory-1/django__django-15851/B/r1",
+      "task_id": "django__django-15851"
+    },
+    "image_id": "sha256:aa80884e053cf1a238df7c4ceec43e4e07929547f658278bd3c3154f0ef8bc90",
+    "isolation_record": {
+      "agent_networks": [
+        "aiep-agent-net"
+      ],
+      "agent_published_ports": 0,
+      "agent_route_count": 1,
+      "containers": {
+        "gateway": [
+          "aiep-agent-net",
+          "aiep-proxy-net"
+        ],
+        "proxy": [
+          "aiep-egress-net",
+          "aiep-proxy-net"
+        ]
+      },
+      "networks": {
+        "aiep-agent-net": {
+          "internal": true
+        },
+        "aiep-egress-net": {
+          "internal": false
+        },
+        "aiep-proxy-net": {
+          "internal": true
+        }
+      },
+      "note": "network names and the internal flag only; addresses, subnets and container ids are withheld"
+    },
+    "lifecycle": {
+      "gateway_removed": true,
+      "gateway_state": "removed",
+      "gateway_stop_reason": null,
+      "ledger_bytes": 3592,
+      "ledger_sha256": "8ff6131c725c964e70c23e02a59c94781e9866803dafcb3ee0f65071638a3508",
+      "proxy_removed": true,
+      "proxy_state": "removed",
+      "status": "completed"
+    },
+    "limits": {
+      "agent_max_output_tokens": 64000,
+      "agent_memory": "2g",
+      "agent_nano_cpus": 2000000000,
+      "agent_pids": 512,
+      "budget_is_soft": true,
+      "budget_usd": "0.18",
+      "claude_client_budget_usd": "0.198",
+      "gateway_budget_usd": "0.18",
+      "gateway_drain_timeout_s": 90.0,
+      "gateway_max_concurrent": 1,
+      "max_patch_bytes": 1048576,
+      "shm_size": "64m",
+      "tmpfs": {
+        "components": "416m",
+        "home": "128m",
+        "testbed": "256m",
+        "tmp": "128m"
+      },
+      "wall_clock_s": 1800.0
+    },
+    "model": "claude-sonnet-5-5",
+    "orchestrator_wall_s": 42.62,
+    "seed": {
+      "entries": 13272,
+      "head": "ec9331c1d76135610cbfd45a0d08e3388993253a",
+      "sha256": "5bb82dc88f1bb99bbc497da64aaa9030f023a84074ecb94a6ad54aae48afb0fb"
+    },
+    "task": {
+      "base_commit": "b4817d20b9e55df30be0b1b2ca8c8bb6d61aab07",
+      "instance_id": "django__django-15851",
+      "repo": "django/django"
+    },
+    "usage_cli_estimate": {
+      "duration_ms": 12115,
+      "is_error": false,
+      "num_turns": 5,
+      "source": "Claude Code client-side estimate (NOT measured)",
+      "subtype": "success",
+      "total_cost_usd": 0.0157452
+    },
+    "usage_measured": {
+      "computed_usd_upper_bound_basis": "0.0157452",
+      "entries_charged_at_max_tokens_upper_bound": 0,
+      "exact": true,
+      "metered": 4,
+      "request_status": {
+        "by_outcome": {
+          "ok": 4
+        },
+        "by_status": {
+          "200": 4
+        },
+        "categories": {
+          "client_4xx": 0,
+          "gateway_refused": 0,
+          "interrupted": 0,
+          "other": 0,
+          "overloaded_529": 0,
+          "rate_limited_429": 0,
+          "server_5xx": 0,
+          "success": 4,
+          "upstream_unavailable_502": 0
+        },
+        "finished_requests": 4,
+        "gateway_busy_429": 0,
+        "non_success": 0,
+        "readable": true,
+        "refused_by_reason": {},
+        "usage_incomplete_upper_bound": 0
+      },
+      "requests": 4,
+      "source": "gateway ledger (measured token usage, computed cost)",
+      "tokens": {
+        "cache_read_tokens": 30292,
+        "cache_write_1h_tokens": 0,
+        "cache_write_5m_tokens": 2552,
+        "cache_write_unclassified_tokens": 0,
+        "input_tokens": 8,
+        "output_tokens": 632
+      },
+      "unparseable_lines": 0,
+      "unresolved_requests": 0
+    },
+    "withheld_artifacts": {
+      "claude_stderr.txt": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "claude_stdout.jsonl": {
+        "sha256": "76d697b294e941c329e09bd2eebe2feebf7c2902d779b80e46447b69dd428ffd",
+        "size": 18291
+      },
+      "patch.diff": {
+        "sha256": "d0dbfb73c1136aeaaeaf466b6474381b6f8da80d86537a1b9aa82ebf01ea1263",
+        "size": 1139
+      },
+      "predictions.jsonl": {
+        "sha256": "47cfcd1060861df68b7ed987585e324fc194429a04631c324a895dd717f4d493",
+        "size": 1302
+      },
+      "prompt.txt": {
+        "sha256": "971f35861eee59d11c6d3ca28ca5d105ccdf15799af55ee61887590705be820e",
+        "size": 1360
+      },
+      "run.json": {
+        "sha256": "9ef06d0e3416b48e9a537e5a4907df2e16c82390eda412a4f41f39ea84ec9c7f",
+        "size": 10869
+      }
+    }
+  },
+  "run_id": "m2-django__django-15851-B-20261123T174307Z",
+  "schema": 1,
+  "transcript": {
+    "ambiguous_sequences": 0,
+    "assistant_messages": 4,
+    "bash_edit_like": [
+      {
+        "call_index": 3,
+        "classification": [
+          "sed_i"
+        ],
+        "target_kinds": [
+          "test_file"
+        ],
+        "targets_known": true
+      }
+    ],
+    "bash_edit_like_calls": 1,
+    "bytes": 18291,
+    "cap_exceeded": false,
+    "complete": true,
+    "compliance": true,
+    "cycle_cap": 5,
+    "edit_tool_calls": [
+      {
+        "call_index": 1,
+        "is_error": null,
+        "target_kind": "source_file",
+        "tool": "Edit"
+      }
+    ],
+    "edit_tool_calls_errored": 0,
+    "edits_after_first_test_run": 0,
+    "edits_total": 1,
+    "ended_with_passing_tests": true,
+    "final_test_state": "passed",
+    "first_test_run_call_index": 2,
+    "parser_version": 2,
+    "sha256": "76d697b294e941c329e09bd2eebe2feebf7c2902d779b80e46447b69dd428ffd",
+    "test_attempts": [
+      {
+        "call_index": 2,
+        "state": "completed_failed",
+        "test_commands_in_call": 1
+      },
+      {
+        "call_index": 3,
+        "state": "completed_passed",
+        "test_commands_in_call": 1
+      }
+    ],
+    "test_fix_cycles": 1,
+    "test_fix_cycles_bash_edit_only": 1,
+    "test_fix_cycles_confirmed_edit": 0,
+    "test_runs": 2,
+    "test_runs_completed": 2,
+    "test_runs_failed": 1,
+    "test_runs_not_started": 0,
+    "test_runs_passed": 1,
+    "test_runs_started": 2,
+    "test_runs_started_incomplete": 0,
+    "test_runs_unknown": 0,
+    "test_usage": true,
+    "tool_calls": [
+      {
+        "call_index": 0,
+        "tool": "Grep"
+      },
+      {
+        "call_index": 1,
+        "tool": "Edit"
+      },
+      {
+        "call_index": 2,
+        "tool": "Bash"
+      },
+      {
+        "call_index": 3,
+        "tool": "Bash"
+      }
+    ],
+    "tool_calls_total": 4,
+    "unfinished_cycles": 0
+  }
+}

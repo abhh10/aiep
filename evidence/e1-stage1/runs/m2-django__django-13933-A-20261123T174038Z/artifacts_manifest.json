@@ -1,0 +1,34 @@
+{
+  "files": {
+    "claude_stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "claude_stdout.jsonl": {
+      "sha256": "a16fd1a1eec04aae3fdee0e394e085191b36932d8dbb08c6412ea3ff220d1144",
+      "size": 138788
+    },
+    "gateway_ledger.jsonl": {
+      "sha256": "b5ce4638c1dd8542e89b32e0ad34696061f6425a0001e21be15392756a9d4307",
+      "size": 3590
+    },
+    "patch.diff": {
+      "sha256": "fbf830d7d1d6497791ee4cecd7720b3abdb664b8b1ea4e27dc74e9b71e540ce5",
+      "size": 1212
+    },
+    "predictions.jsonl": {
+      "sha256": "1dfb352632518387d9efc9768e2caf5bf23c94ddbec7b6062895197863dd1502",
+      "size": 1347
+    },
+    "prompt.txt": {
+      "sha256": "122a6b95c173d5f5aaeef9e4f3816ec646f6b6d67d612517fe9280057321bb21",
+      "size": 1606
+    },
+    "run.json": {
+      "sha256": "35257884543b37a3a36fa08d83dc1ba506c3cadf5781afb472ec4c6063a37247",
+      "size": 10871
+    }
+  },
+  "run_id": "m2-django__django-13933-A-20261123T174038Z",
+  "schema": 1
+}

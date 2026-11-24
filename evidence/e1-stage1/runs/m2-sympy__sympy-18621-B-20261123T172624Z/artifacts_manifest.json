@@ -1,0 +1,34 @@
+{
+  "files": {
+    "claude_stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "claude_stdout.jsonl": {
+      "sha256": "68f9a18fdbab5de9f9030b8fbe95440a210806aa18c2868af6598f5bb20d17c8",
+      "size": 47998
+    },
+    "gateway_ledger.jsonl": {
+      "sha256": "da069b6cae721cd4b224a4efd168f25dc9728616e33e6fe414250599e98565b3",
+      "size": 6297
+    },
+    "patch.diff": {
+      "sha256": "74fe228431ce3a32eb038befa54f7184f61a713756f687ca33b7abac1a9c34c6",
+      "size": 594
+    },
+    "predictions.jsonl": {
+      "sha256": "1a31aeaffb7fe0da4b122ac4a65a36f203da82c3e6a6a7dd9bc38cbccbbb1a90",
+      "size": 714
+    },
+    "prompt.txt": {
+      "sha256": "83a0f853c4aa6130666bec078639e95444b0df4aa9d00caa2cc4d01a0f145c89",
+      "size": 2815
+    },
+    "run.json": {
+      "sha256": "ec31b5fc76071d9e7e274b22bb4b2401a089f33f5aa57950158a3d6027f81e10",
+      "size": 10856
+    }
+  },
+  "run_id": "m2-sympy__sympy-18621-B-20261123T172624Z",
+  "schema": 1
+}

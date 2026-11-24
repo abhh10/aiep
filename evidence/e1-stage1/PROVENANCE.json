@@ -1,0 +1,679 @@
+{
+  "builder": {
+    "built_on_commit": "3ea702cee1df613364fe4b73b8fef791f3fb8329",
+    "script": "scripts/build_e1_stage1_evidence.py",
+    "sha256": "b98bcb6d49bf9cbc198c4a2721e236e69249baec5862341ea30a70b3af8ef74f"
+  },
+  "bundle": "e1-stage1",
+  "definition": {
+    "definition_sha256": "9601b345da705b7e8bbdba251b902f4c7637482fd2e87e732dcba0dc36875eff",
+    "file_sha256": "b41b87450eb9f0b105d4c42c3588a34e2966bb7abe121e13b55aa158c7c75bce",
+    "path": "config/experiments/e1-exploratory-1.json"
+  },
+  "execution": {
+    "all_clean": true,
+    "harness_commit": "28e758e5f3ccf4598fe843fe4a3abbed3628eb83",
+    "public_history_commit": "087d65da7431d24ce14d882ddc28ae7354b7a3a3",
+    "runs_checked": 8,
+    "source": "aiep.commit of each scored run's run.json: the harness commit at execution, not the commit at bundle generation"
+  },
+  "experiment_id": "e1-exploratory-1",
+  "files": {
+    "README.md": {
+      "note": "static text written by the builder",
+      "sources": [],
+      "treatment": "generated"
+    },
+    "batch/results.jsonl": {
+      "dropped_fields": [
+        "run_dir"
+      ],
+      "note": "every row is otherwise byte-for-byte as written by the batch; the file hash therefore differs from the private file's",
+      "sources": [
+        {
+          "bytes": 24830,
+          "path": "runs/m3/e1-exploratory-1/results.jsonl",
+          "sha256": "cd13a7cd393068594d83ab80c26da8faf9ecbca6d5ea96af7142ee7ece9e4efb"
+        }
+      ],
+      "treatment": "sanitized"
+    },
+    "batch/state.json": {
+      "note": "reviewed key by key against an explicit list and pattern-scanned before copying",
+      "sources": [
+        {
+          "bytes": 14812,
+          "path": "runs/m3/e1-exploratory-1/state.json",
+          "sha256": "e7d5fd4680c5039f7ae407eb13173b9519f3269bbfa7dd8494bfe64d938c1547"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-django__django-13933-A-20261123T174038Z/artifacts_manifest.json": {
+      "sources": [
+        {
+          "bytes": 1034,
+          "path": "runs/m2/m2-django__django-13933-A-20261123T174038Z/artifacts_manifest.json",
+          "sha256": "0a4ec6af689037205ac65b107d442fd46c5b7e30c3487677707b24201d394b22"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-django__django-13933-A-20261123T174038Z/evidence.json": {
+      "note": "explicit keep and drop lists; transcript, prompt and evaluator content reduced to counts, hashes and finite classifications",
+      "sources": [
+        {
+          "bytes": 10871,
+          "path": "runs/m2/m2-django__django-13933-A-20261123T174038Z/run.json",
+          "sha256": "35257884543b37a3a36fa08d83dc1ba506c3cadf5781afb472ec4c6063a37247"
+        },
+        {
+          "bytes": 138788,
+          "path": "runs/m2/m2-django__django-13933-A-20261123T174038Z/claude_stdout.jsonl",
+          "sha256": "a16fd1a1eec04aae3fdee0e394e085191b36932d8dbb08c6412ea3ff220d1144"
+        },
+        {
+          "bytes": 1606,
+          "path": "runs/m2/m2-django__django-13933-A-20261123T174038Z/prompt.txt",
+          "sha256": "122a6b95c173d5f5aaeef9e4f3816ec646f6b6d67d612517fe9280057321bb21"
+        },
+        {
+          "bytes": 14796,
+          "path": "runs/handoff/m2-django__django-13933-A-20261123T174038Z.handoff.json",
+          "sha256": "ff4fabc3a798b048569f6d3f567993c04ba6b36443545373c8e9f87757bc6191"
+        },
+        {
+          "bytes": 1489,
+          "path": "runs/m1/m3eval-m2-django__django-13933-A-20261123T174038Z/meta.json",
+          "sha256": "fb6b231a255b34bb43e6960e9fe85e88f8e12fcf6a59eb95ecee71aaee1af076"
+        },
+        {
+          "bytes": 2923,
+          "path": "runs/m1/m3eval-m2-django__django-13933-A-20261123T174038Z/logs/run_evaluation/m3eval-m2-django__django-13933-A-20261123T174038Z/aiep-A-claude-sonnet-5-5/django__django-13933/report.json",
+          "sha256": "924dc5f465ed6cd31e6a0415484d9709ab4e31edc44dea5ab2a41fff4989a25d"
+        },
+        {
+          "bytes": 6715,
+          "path": "runs/m1/m3eval-m2-django__django-13933-A-20261123T174038Z/logs/run_evaluation/m3eval-m2-django__django-13933-A-20261123T174038Z/aiep-A-claude-sonnet-5-5/django__django-13933/run_instance.log",
+          "sha256": "16dd3782702a2af5be44b6aa550e12ae183b8b77284a083f0e62e7105793fd13"
+        },
+        {
+          "bytes": 1802429,
+          "path": "runs/m1/m3eval-m2-django__django-13933-A-20261123T174038Z/logs/run_evaluation/m3eval-m2-django__django-13933-A-20261123T174038Z/aiep-A-claude-sonnet-5-5/django__django-13933/test_output.txt",
+          "sha256": "9c55f85f2207d79221a14c0658f26f8fd76c6488f888df41b4a56716f27a7f0d"
+        },
+        {
+          "bytes": 1212,
+          "path": "runs/m1/m3eval-m2-django__django-13933-A-20261123T174038Z/logs/run_evaluation/m3eval-m2-django__django-13933-A-20261123T174038Z/aiep-A-claude-sonnet-5-5/django__django-13933/patch.diff",
+          "sha256": "fbf830d7d1d6497791ee4cecd7720b3abdb664b8b1ea4e27dc74e9b71e540ce5"
+        },
+        {
+          "bytes": 374,
+          "path": "runs/m1/m3eval-m2-django__django-13933-A-20261123T174038Z/create_kwargs.jsonl",
+          "sha256": "5bdded6b97cb89f13dc582883c58ef2be25697e6367e3ed950c78593df5f9a94"
+        }
+      ],
+      "treatment": "derived"
+    },
+    "runs/m2-django__django-13933-A-20261123T174038Z/gateway_ledger.jsonl": {
+      "sources": [
+        {
+          "bytes": 3590,
+          "path": "runs/m2/m2-django__django-13933-A-20261123T174038Z/gateway_ledger.jsonl",
+          "sha256": "b5ce4638c1dd8542e89b32e0ad34696061f6425a0001e21be15392756a9d4307"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-django__django-13933-B-20261123T172904Z/artifacts_manifest.json": {
+      "sources": [
+        {
+          "bytes": 1033,
+          "path": "runs/m2/m2-django__django-13933-B-20261123T172904Z/artifacts_manifest.json",
+          "sha256": "be0933641941e1ade0be6035688ad526c95c6bd12b61855a99cfb659e943391f"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-django__django-13933-B-20261123T172904Z/evidence.json": {
+      "note": "explicit keep and drop lists; transcript, prompt and evaluator content reduced to counts, hashes and finite classifications",
+      "sources": [
+        {
+          "bytes": 10872,
+          "path": "runs/m2/m2-django__django-13933-B-20261123T172904Z/run.json",
+          "sha256": "71d54c58862fffdff4c4acd0bd758d1d732fdd48f3eca7bfb86cc2c3af144a99"
+        },
+        {
+          "bytes": 27664,
+          "path": "runs/m2/m2-django__django-13933-B-20261123T172904Z/claude_stdout.jsonl",
+          "sha256": "eb9abe28492675bade7f8cf2d83b69e18fae75f5e481b26421cf5e7e9f145e57"
+        },
+        {
+          "bytes": 1939,
+          "path": "runs/m2/m2-django__django-13933-B-20261123T172904Z/prompt.txt",
+          "sha256": "40fe4643fb4af2d7fd00aa7c91666c8d613fd8d411aae53d4094d771a7acbedb"
+        },
+        {
+          "bytes": 14798,
+          "path": "runs/handoff/m2-django__django-13933-B-20261123T172904Z.handoff.json",
+          "sha256": "ce9944ca9ec44b901b5f16e8c16d98e80479dfb8c071b2bca6154d00d668ea86"
+        },
+        {
+          "bytes": 1490,
+          "path": "runs/m1/m3eval-m2-django__django-13933-B-20261123T172904Z/meta.json",
+          "sha256": "10303117d8001d5d3369ada1ad3804e05573254ae67ff28910e6ed881b94a644"
+        },
+        {
+          "bytes": 2923,
+          "path": "runs/m1/m3eval-m2-django__django-13933-B-20261123T172904Z/logs/run_evaluation/m3eval-m2-django__django-13933-B-20261123T172904Z/aiep-B-claude-sonnet-5-5/django__django-13933/report.json",
+          "sha256": "924dc5f465ed6cd31e6a0415484d9709ab4e31edc44dea5ab2a41fff4989a25d"
+        },
+        {
+          "bytes": 6833,
+          "path": "runs/m1/m3eval-m2-django__django-13933-B-20261123T172904Z/logs/run_evaluation/m3eval-m2-django__django-13933-B-20261123T172904Z/aiep-B-claude-sonnet-5-5/django__django-13933/run_instance.log",
+          "sha256": "d64f9de02a67c78acf7312f0fc492f7734755855efae4747cfb37b9d76ec4779"
+        },
+        {
+          "bytes": 1802488,
+          "path": "runs/m1/m3eval-m2-django__django-13933-B-20261123T172904Z/logs/run_evaluation/m3eval-m2-django__django-13933-B-20261123T172904Z/aiep-B-claude-sonnet-5-5/django__django-13933/test_output.txt",
+          "sha256": "680fa3d58ef4594bc701fabbd1b1afcd5d403c2360303ee1da58cf7b63c76435"
+        },
+        {
+          "bytes": 1271,
+          "path": "runs/m1/m3eval-m2-django__django-13933-B-20261123T172904Z/logs/run_evaluation/m3eval-m2-django__django-13933-B-20261123T172904Z/aiep-B-claude-sonnet-5-5/django__django-13933/patch.diff",
+          "sha256": "02f21985e44b15e04c60f30de769aa3be667925e6bf5f64d2b563005b1af6bb3"
+        },
+        {
+          "bytes": 374,
+          "path": "runs/m1/m3eval-m2-django__django-13933-B-20261123T172904Z/create_kwargs.jsonl",
+          "sha256": "aff3b7dfae3f98d8aa5f03251ee0e91f995557b3ca26bb5209416c51541ded90"
+        }
+      ],
+      "treatment": "derived"
+    },
+    "runs/m2-django__django-13933-B-20261123T172904Z/gateway_ledger.jsonl": {
+      "sources": [
+        {
+          "bytes": 4492,
+          "path": "runs/m2/m2-django__django-13933-B-20261123T172904Z/gateway_ledger.jsonl",
+          "sha256": "b6ebb21173cd5fe5d5a1c7e624c7d0e0e686513f60f32a2d7fa16aa856c2b936"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-django__django-15851-A-20261123T175434Z/artifacts_manifest.json": {
+      "sources": [
+        {
+          "bytes": 1031,
+          "path": "runs/m2/m2-django__django-15851-A-20261123T175434Z/artifacts_manifest.json",
+          "sha256": "e0249f22674e7fa31c7993efa940b7c8f3196a48b140fa69ce0e1f572f330733"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-django__django-15851-A-20261123T175434Z/evidence.json": {
+      "note": "explicit keep and drop lists; transcript, prompt and evaluator content reduced to counts, hashes and finite classifications",
+      "sources": [
+        {
+          "bytes": 10878,
+          "path": "runs/m2/m2-django__django-15851-A-20261123T175434Z/run.json",
+          "sha256": "e56e123f9558a651b575ff25c155d9219dd7f60eea77e21df67c7594b4d58403"
+        },
+        {
+          "bytes": 13015,
+          "path": "runs/m2/m2-django__django-15851-A-20261123T175434Z/claude_stdout.jsonl",
+          "sha256": "60e4b3735942dcff04a2463935727607c45b8a592942ee06151dde0aadde0f9a"
+        },
+        {
+          "bytes": 1027,
+          "path": "runs/m2/m2-django__django-15851-A-20261123T175434Z/prompt.txt",
+          "sha256": "65c4307455d125cd55f0d1352fe073772a59fa74b2f1123fcd42a727724f8d7d"
+        },
+        {
+          "bytes": 14810,
+          "path": "runs/handoff/m2-django__django-15851-A-20261123T175434Z.handoff.json",
+          "sha256": "47eedd63b87729fc8992e3040168997a94d878c019a345ddcc5cef84da46f6bf"
+        },
+        {
+          "bytes": 1487,
+          "path": "runs/m1/m3eval-m2-django__django-15851-A-20261123T175434Z/meta.json",
+          "sha256": "466b0574a3af604146023a6907166ec80eea16a71eb710818e9342a3e55c1853"
+        },
+        {
+          "bytes": 1577,
+          "path": "runs/m1/m3eval-m2-django__django-15851-A-20261123T175434Z/logs/run_evaluation/m3eval-m2-django__django-15851-A-20261123T175434Z/aiep-A-claude-sonnet-5-5/django__django-15851/report.json",
+          "sha256": "a1d8edab9199ecbc54dd63ba5a2f0200866b4e0029c88596b8327597ddaecb51"
+        },
+        {
+          "bytes": 4259,
+          "path": "runs/m1/m3eval-m2-django__django-15851-A-20261123T175434Z/logs/run_evaluation/m3eval-m2-django__django-15851-A-20261123T175434Z/aiep-A-claude-sonnet-5-5/django__django-15851/run_instance.log",
+          "sha256": "42c20090ea3579aba0ca73846e87f7a453204e5e82efb09d01319ed204238112"
+        },
+        {
+          "bytes": 1862407,
+          "path": "runs/m1/m3eval-m2-django__django-15851-A-20261123T175434Z/logs/run_evaluation/m3eval-m2-django__django-15851-A-20261123T175434Z/aiep-A-claude-sonnet-5-5/django__django-15851/test_output.txt",
+          "sha256": "53a706bbb0291844ac1f37aaa7b9f8a0d1d1036f13d232dd54104c3fef887e6f"
+        },
+        {
+          "bytes": 530,
+          "path": "runs/m1/m3eval-m2-django__django-15851-A-20261123T175434Z/logs/run_evaluation/m3eval-m2-django__django-15851-A-20261123T175434Z/aiep-A-claude-sonnet-5-5/django__django-15851/patch.diff",
+          "sha256": "15989da845ac1f766848c5c2e153296d7eef926a752ec658548702ac0e028bc7"
+        },
+        {
+          "bytes": 374,
+          "path": "runs/m1/m3eval-m2-django__django-15851-A-20261123T175434Z/create_kwargs.jsonl",
+          "sha256": "59b08859cd6d0386a33cfc1d4ad64ae4dcbf9423c1fea3015ca89d874996cfcf"
+        }
+      ],
+      "treatment": "derived"
+    },
+    "runs/m2-django__django-15851-A-20261123T175434Z/gateway_ledger.jsonl": {
+      "sources": [
+        {
+          "bytes": 2687,
+          "path": "runs/m2/m2-django__django-15851-A-20261123T175434Z/gateway_ledger.jsonl",
+          "sha256": "7075ed2c9947733e2c9961d17299726fc6467b0312aadd4854ea141285d8c81f"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-django__django-15851-B-20261123T174307Z/artifacts_manifest.json": {
+      "sources": [
+        {
+          "bytes": 1033,
+          "path": "runs/m2/m2-django__django-15851-B-20261123T174307Z/artifacts_manifest.json",
+          "sha256": "fd7bd74dca2e6c2908675ef1c7175d0f2ba1ee741a6a602c1601a647482d0421"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-django__django-15851-B-20261123T174307Z/evidence.json": {
+      "note": "explicit keep and drop lists; transcript, prompt and evaluator content reduced to counts, hashes and finite classifications",
+      "sources": [
+        {
+          "bytes": 10869,
+          "path": "runs/m2/m2-django__django-15851-B-20261123T174307Z/run.json",
+          "sha256": "9ef06d0e3416b48e9a537e5a4907df2e16c82390eda412a4f41f39ea84ec9c7f"
+        },
+        {
+          "bytes": 18291,
+          "path": "runs/m2/m2-django__django-15851-B-20261123T174307Z/claude_stdout.jsonl",
+          "sha256": "76d697b294e941c329e09bd2eebe2feebf7c2902d779b80e46447b69dd428ffd"
+        },
+        {
+          "bytes": 1360,
+          "path": "runs/m2/m2-django__django-15851-B-20261123T174307Z/prompt.txt",
+          "sha256": "971f35861eee59d11c6d3ca28ca5d105ccdf15799af55ee61887590705be820e"
+        },
+        {
+          "bytes": 14978,
+          "path": "runs/handoff/m2-django__django-15851-B-20261123T174307Z.handoff.json",
+          "sha256": "a184333a82e0c2bdc7f1cbcb77eed55060398b661656d149951b816207c552bc"
+        },
+        {
+          "bytes": 1487,
+          "path": "runs/m1/m3eval-m2-django__django-15851-B-20261123T174307Z/meta.json",
+          "sha256": "3d8e95467510f63278f8f90cdf534ac5d19e0c6294ff193fd3dfcf55cbced15d"
+        },
+        {
+          "bytes": 1577,
+          "path": "runs/m1/m3eval-m2-django__django-15851-B-20261123T174307Z/logs/run_evaluation/m3eval-m2-django__django-15851-B-20261123T174307Z/aiep-B-claude-sonnet-5-5/django__django-15851/report.json",
+          "sha256": "a1d8edab9199ecbc54dd63ba5a2f0200866b4e0029c88596b8327597ddaecb51"
+        },
+        {
+          "bytes": 5051,
+          "path": "runs/m1/m3eval-m2-django__django-15851-B-20261123T174307Z/logs/run_evaluation/m3eval-m2-django__django-15851-B-20261123T174307Z/aiep-B-claude-sonnet-5-5/django__django-15851/run_instance.log",
+          "sha256": "25db2e9c857d7fcb87fcd050b16bd9b45de02093fe5625c015835618cda34ada"
+        },
+        {
+          "bytes": 1862974,
+          "path": "runs/m1/m3eval-m2-django__django-15851-B-20261123T174307Z/logs/run_evaluation/m3eval-m2-django__django-15851-B-20261123T174307Z/aiep-B-claude-sonnet-5-5/django__django-15851/test_output.txt",
+          "sha256": "62005f04be9643089b7acc3c9c382bd3b1180407c68b8e4c563a05509c9172ef"
+        },
+        {
+          "bytes": 1139,
+          "path": "runs/m1/m3eval-m2-django__django-15851-B-20261123T174307Z/logs/run_evaluation/m3eval-m2-django__django-15851-B-20261123T174307Z/aiep-B-claude-sonnet-5-5/django__django-15851/patch.diff",
+          "sha256": "d0dbfb73c1136aeaaeaf466b6474381b6f8da80d86537a1b9aa82ebf01ea1263"
+        },
+        {
+          "bytes": 374,
+          "path": "runs/m1/m3eval-m2-django__django-15851-B-20261123T174307Z/create_kwargs.jsonl",
+          "sha256": "0613f9e22ed25e732761bf8197dd03a81c53e76a2e82f4185369bcd94bf754e4"
+        }
+      ],
+      "treatment": "derived"
+    },
+    "runs/m2-django__django-15851-B-20261123T174307Z/gateway_ledger.jsonl": {
+      "sources": [
+        {
+          "bytes": 3592,
+          "path": "runs/m2/m2-django__django-15851-B-20261123T174307Z/gateway_ledger.jsonl",
+          "sha256": "8ff6131c725c964e70c23e02a59c94781e9866803dafcb3ee0f65071638a3508"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-sympy__sympy-18621-A-20261123T171501Z/artifacts_manifest.json": {
+      "sources": [
+        {
+          "bytes": 1029,
+          "path": "runs/m2/m2-sympy__sympy-18621-A-20261123T171501Z/artifacts_manifest.json",
+          "sha256": "05cb7b1ebe39b82e2fb078df5a311a9a7bf5cccccfa5e94f7c297a015ae6dc79"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-sympy__sympy-18621-A-20261123T171501Z/evidence.json": {
+      "note": "explicit keep and drop lists; transcript, prompt and evaluator content reduced to counts, hashes and finite classifications",
+      "sources": [
+        {
+          "bytes": 10866,
+          "path": "runs/m2/m2-sympy__sympy-18621-A-20261123T171501Z/run.json",
+          "sha256": "d494b6406bed89b8e73536b1c4a7a3315e938c63f998affa3ac889a063d82f27"
+        },
+        {
+          "bytes": 23668,
+          "path": "runs/m2/m2-sympy__sympy-18621-A-20261123T171501Z/claude_stdout.jsonl",
+          "sha256": "2223369a55dd69d05d5b64286426816412808a70e1b3db94d5cdfedc75206f52"
+        },
+        {
+          "bytes": 2482,
+          "path": "runs/m2/m2-sympy__sympy-18621-A-20261123T171501Z/prompt.txt",
+          "sha256": "a9ef902b77723a89ca9e852b68d96d9b41919768969af3d11988e9c7b4ec4bc6"
+        },
+        {
+          "bytes": 14771,
+          "path": "runs/handoff/m2-sympy__sympy-18621-A-20261123T171501Z.handoff.json",
+          "sha256": "0b8fc0e33aeb5ca06629bb899375f8c67bc3b5c9a1d7c558abb2cff2cbf77ee1"
+        },
+        {
+          "bytes": 1471,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/meta.json",
+          "sha256": "c14a6381d173e90a7a6e4e60ba35397e7222ec757699cf501365d3ccd5c69afc"
+        },
+        {
+          "bytes": 1377,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/logs/run_evaluation/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/aiep-A-claude-sonnet-5-5/sympy__sympy-18621/report.json",
+          "sha256": "ca4e17fc0f567ea8073b30db6f9d10583c9d2ca63bea72da912cb500ffd71a55"
+        },
+        {
+          "bytes": 4252,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/logs/run_evaluation/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/aiep-A-claude-sonnet-5-5/sympy__sympy-18621/run_instance.log",
+          "sha256": "6fdf37400a501f9faf204318c02bc721faf90d4cb39304a096b63f9cb5a232a2"
+        },
+        {
+          "bytes": 418512,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/logs/run_evaluation/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/aiep-A-claude-sonnet-5-5/sympy__sympy-18621/test_output.txt",
+          "sha256": "1989848b08ac3731ce8247da46f87f118183a72e2016daf8d6566dbea4aefd7e"
+        },
+        {
+          "bytes": 717,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/logs/run_evaluation/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/aiep-A-claude-sonnet-5-5/sympy__sympy-18621/patch.diff",
+          "sha256": "1fece3fa349ea13a835fcd6ad08ec530a53cf6c079aa180a8b64cfb1c5857cd7"
+        },
+        {
+          "bytes": 368,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-A-20261123T171501Z/create_kwargs.jsonl",
+          "sha256": "0d9794a2c14e8b1833911052b4ccb82610b8933f25a25f5182e576c1e7b89f92"
+        }
+      ],
+      "treatment": "derived"
+    },
+    "runs/m2-sympy__sympy-18621-A-20261123T171501Z/gateway_ledger.jsonl": {
+      "sources": [
+        {
+          "bytes": 3589,
+          "path": "runs/m2/m2-sympy__sympy-18621-A-20261123T171501Z/gateway_ledger.jsonl",
+          "sha256": "9dd64121669733e8d78ff04be129b928aa715d0f4fbbd0946a2426b77981cf2c"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-sympy__sympy-18621-B-20261123T172624Z/artifacts_manifest.json": {
+      "sources": [
+        {
+          "bytes": 1029,
+          "path": "runs/m2/m2-sympy__sympy-18621-B-20261123T172624Z/artifacts_manifest.json",
+          "sha256": "e2b72ddd3a7fbf547da45391e899c6b589e51ad6ce9054ec8e03e21fbe304fc1"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-sympy__sympy-18621-B-20261123T172624Z/evidence.json": {
+      "note": "explicit keep and drop lists; transcript, prompt and evaluator content reduced to counts, hashes and finite classifications",
+      "sources": [
+        {
+          "bytes": 10856,
+          "path": "runs/m2/m2-sympy__sympy-18621-B-20261123T172624Z/run.json",
+          "sha256": "ec31b5fc76071d9e7e274b22bb4b2401a089f33f5aa57950158a3d6027f81e10"
+        },
+        {
+          "bytes": 47998,
+          "path": "runs/m2/m2-sympy__sympy-18621-B-20261123T172624Z/claude_stdout.jsonl",
+          "sha256": "68f9a18fdbab5de9f9030b8fbe95440a210806aa18c2868af6598f5bb20d17c8"
+        },
+        {
+          "bytes": 2815,
+          "path": "runs/m2/m2-sympy__sympy-18621-B-20261123T172624Z/prompt.txt",
+          "sha256": "83a0f853c4aa6130666bec078639e95444b0df4aa9d00caa2cc4d01a0f145c89"
+        },
+        {
+          "bytes": 14922,
+          "path": "runs/handoff/m2-sympy__sympy-18621-B-20261123T172624Z.handoff.json",
+          "sha256": "3485ed84e41bd24b8cacc85705061660a4794c2666184fcb4bbe868d8fb0ed27"
+        },
+        {
+          "bytes": 1468,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/meta.json",
+          "sha256": "3f0e12b50a0cb850f08bc36e60f0982e9e8bbb54cf367513c5bf922767f4317e"
+        },
+        {
+          "bytes": 1377,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/logs/run_evaluation/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/aiep-B-claude-sonnet-5-5/sympy__sympy-18621/report.json",
+          "sha256": "ca4e17fc0f567ea8073b30db6f9d10583c9d2ca63bea72da912cb500ffd71a55"
+        },
+        {
+          "bytes": 4006,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/logs/run_evaluation/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/aiep-B-claude-sonnet-5-5/sympy__sympy-18621/run_instance.log",
+          "sha256": "16b31476b7bfd8cbb04f7fe4ac0c64263aa70ba5c83247452386c72d8eda74d5"
+        },
+        {
+          "bytes": 418389,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/logs/run_evaluation/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/aiep-B-claude-sonnet-5-5/sympy__sympy-18621/test_output.txt",
+          "sha256": "24165ad0733e24d7a50c3486d6161f0f940082449ef7bf791bc6e60182026616"
+        },
+        {
+          "bytes": 594,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/logs/run_evaluation/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/aiep-B-claude-sonnet-5-5/sympy__sympy-18621/patch.diff",
+          "sha256": "74fe228431ce3a32eb038befa54f7184f61a713756f687ca33b7abac1a9c34c6"
+        },
+        {
+          "bytes": 368,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-18621-B-20261123T172624Z/create_kwargs.jsonl",
+          "sha256": "1af597eca8de1f9c0c53412da1e3a5436cde3b0efb2ac0ba2be7577c40a800ce"
+        }
+      ],
+      "treatment": "derived"
+    },
+    "runs/m2-sympy__sympy-18621-B-20261123T172624Z/gateway_ledger.jsonl": {
+      "sources": [
+        {
+          "bytes": 6297,
+          "path": "runs/m2/m2-sympy__sympy-18621-B-20261123T172624Z/gateway_ledger.jsonl",
+          "sha256": "da069b6cae721cd4b224a4efd168f25dc9728616e33e6fe414250599e98565b3"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-sympy__sympy-22714-A-20261123T175656Z/artifacts_manifest.json": {
+      "sources": [
+        {
+          "bytes": 1029,
+          "path": "runs/m2/m2-sympy__sympy-22714-A-20261123T175656Z/artifacts_manifest.json",
+          "sha256": "5ba2321ae6c5e47e778a86a751961933be1914ece8b14e801a5024ce29b8da35"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-sympy__sympy-22714-A-20261123T175656Z/evidence.json": {
+      "note": "explicit keep and drop lists; transcript, prompt and evaluator content reduced to counts, hashes and finite classifications",
+      "sources": [
+        {
+          "bytes": 10847,
+          "path": "runs/m2/m2-sympy__sympy-22714-A-20261123T175656Z/run.json",
+          "sha256": "580dc9e724cc98e6ff150396d0cebdf9700313df4cfce3fbd73c155055e8f5ce"
+        },
+        {
+          "bytes": 12463,
+          "path": "runs/m2/m2-sympy__sympy-22714-A-20261123T175656Z/claude_stdout.jsonl",
+          "sha256": "166c9beeadca0c535c14b1ab4fc70b1f717f4ecbf61cf22bfd923a86c06eb25f"
+        },
+        {
+          "bytes": 2055,
+          "path": "runs/m2/m2-sympy__sympy-22714-A-20261123T175656Z/prompt.txt",
+          "sha256": "1837f54ffa75de69c9614203ef3311b9cad9ac1d61c0677690c77dc272e30c2c"
+        },
+        {
+          "bytes": 14901,
+          "path": "runs/handoff/m2-sympy__sympy-22714-A-20261123T175656Z.handoff.json",
+          "sha256": "30db106d13797fcb6102cd334cf0cdfdcfebec6882a4a6c319a569aa30e4fd6c"
+        },
+        {
+          "bytes": 1471,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/meta.json",
+          "sha256": "dc1cd0f39fe66cec95b8e1ad48ee299899a5e3696ccca48506557688cf3ab58b"
+        },
+        {
+          "bytes": 1157,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/logs/run_evaluation/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/aiep-A-claude-sonnet-5-5/sympy__sympy-22714/report.json",
+          "sha256": "3dd84aa1bfcfd84d86059ad5803abd4998d7b22425f4d287a381e03e676d2bda"
+        },
+        {
+          "bytes": 4053,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/logs/run_evaluation/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/aiep-A-claude-sonnet-5-5/sympy__sympy-22714/run_instance.log",
+          "sha256": "f65ea827f00ead4474aee67349db59ae6e639a92cf5fd41c32a78367d437bbb1"
+        },
+        {
+          "bytes": 467550,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/logs/run_evaluation/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/aiep-A-claude-sonnet-5-5/sympy__sympy-22714/test_output.txt",
+          "sha256": "02421e006b099625d800fe30e3ec226c771563551d705a36a4821777626c8c38"
+        },
+        {
+          "bytes": 705,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/logs/run_evaluation/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/aiep-A-claude-sonnet-5-5/sympy__sympy-22714/patch.diff",
+          "sha256": "c10b66d0507d862ab40fea18f0f2413384b5fe7daa1cf1188b98ec3a4c66a3e3"
+        },
+        {
+          "bytes": 368,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-A-20261123T175656Z/create_kwargs.jsonl",
+          "sha256": "118561b1b49156fa064b1ae15502c739d3e32da1a3d5204ff573b582cfd2085c"
+        }
+      ],
+      "treatment": "derived"
+    },
+    "runs/m2-sympy__sympy-22714-A-20261123T175656Z/gateway_ledger.jsonl": {
+      "sources": [
+        {
+          "bytes": 2692,
+          "path": "runs/m2/m2-sympy__sympy-22714-A-20261123T175656Z/gateway_ledger.jsonl",
+          "sha256": "cc11d5fb5728846a8c9f16363f984a820e13d885321a21b8eff976fd75df6de7"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-sympy__sympy-22714-B-20261123T180803Z/artifacts_manifest.json": {
+      "sources": [
+        {
+          "bytes": 1029,
+          "path": "runs/m2/m2-sympy__sympy-22714-B-20261123T180803Z/artifacts_manifest.json",
+          "sha256": "a9273fb4360decdeb7b4315e8bfae6fb1cadf82f7d51500c8f405bbeae81c1d4"
+        }
+      ],
+      "treatment": "verbatim"
+    },
+    "runs/m2-sympy__sympy-22714-B-20261123T180803Z/evidence.json": {
+      "note": "explicit keep and drop lists; transcript, prompt and evaluator content reduced to counts, hashes and finite classifications",
+      "sources": [
+        {
+          "bytes": 10850,
+          "path": "runs/m2/m2-sympy__sympy-22714-B-20261123T180803Z/run.json",
+          "sha256": "570b2849b4a34eb092739c2fead574853bf9bc01bc1fa933bc9389c0eae2ed49"
+        },
+        {
+          "bytes": 18821,
+          "path": "runs/m2/m2-sympy__sympy-22714-B-20261123T180803Z/claude_stdout.jsonl",
+          "sha256": "ddbb1fe26fe001ea547614d2b0eae0d011d2faa80db69f688042e64e86d86d44"
+        },
+        {
+          "bytes": 2388,
+          "path": "runs/m2/m2-sympy__sympy-22714-B-20261123T180803Z/prompt.txt",
+          "sha256": "8a8b14746f054fbb8b287726cfcbb9ca18a8a78b71467d58f46418cbe2dfa2e1"
+        },
+        {
+          "bytes": 14901,
+          "path": "runs/handoff/m2-sympy__sympy-22714-B-20261123T180803Z.handoff.json",
+          "sha256": "e25e168ea0279afa02f0128dc7d5e4ff32b4511246ea05aeebd78dac63141ea0"
+        },
+        {
+          "bytes": 1472,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/meta.json",
+          "sha256": "6bd38039fb7255ece3b1ffdb6dfbdaf84aaf9b471ed8cc5e6bd18ee7e6a4f99d"
+        },
+        {
+          "bytes": 1157,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/logs/run_evaluation/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/aiep-B-claude-sonnet-5-5/sympy__sympy-22714/report.json",
+          "sha256": "3dd84aa1bfcfd84d86059ad5803abd4998d7b22425f4d287a381e03e676d2bda"
+        },
+        {
+          "bytes": 4053,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/logs/run_evaluation/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/aiep-B-claude-sonnet-5-5/sympy__sympy-22714/run_instance.log",
+          "sha256": "4312936db7e4a0ab8200035da14dc04cdc771fb6387e22964c3a7bb2fe6f7e38"
+        },
+        {
+          "bytes": 467551,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/logs/run_evaluation/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/aiep-B-claude-sonnet-5-5/sympy__sympy-22714/test_output.txt",
+          "sha256": "85826226a87421cab80d41bb33e094b914b0d760085d412eec07de5a03c352d6"
+        },
+        {
+          "bytes": 705,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/logs/run_evaluation/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/aiep-B-claude-sonnet-5-5/sympy__sympy-22714/patch.diff",
+          "sha256": "c10b66d0507d862ab40fea18f0f2413384b5fe7daa1cf1188b98ec3a4c66a3e3"
+        },
+        {
+          "bytes": 368,
+          "path": "runs/m1/m3eval-m2-sympy__sympy-22714-B-20261123T180803Z/create_kwargs.jsonl",
+          "sha256": "5b06f70e4b0154dc502bf822b989c4cc176c3b84f47eba312411ad73565d324e"
+        }
+      ],
+      "treatment": "derived"
+    },
+    "runs/m2-sympy__sympy-22714-B-20261123T180803Z/gateway_ledger.jsonl": {
+      "sources": [
+        {
+          "bytes": 3587,
+          "path": "runs/m2/m2-sympy__sympy-22714-B-20261123T180803Z/gateway_ledger.jsonl",
+          "sha256": "f863b2ec6578fcdc0dbb51984deadbf5c05c9e76bbcc66116b42f40aba02ab10"
+        }
+      ],
+      "treatment": "verbatim"
+    }
+  },
+  "sanitization": {
+    "hidden_data_scan": {
+      "identifiers_checked": 57,
+      "patch_lines_checked": 22
+    },
+    "statement": "hashes of private source files identify them and show internal consistency; they do not let a third party verify withheld contents",
+    "unsafe_patterns": [
+      "absolute_path",
+      "credential_word",
+      "email",
+      "home_tilde",
+      "ipv4",
+      "socket_or_session",
+      "uuid",
+      "personal_identifier"
+    ]
+  },
+  "schema": 3
+}

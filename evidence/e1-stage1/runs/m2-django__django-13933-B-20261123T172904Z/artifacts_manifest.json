@@ -1,0 +1,34 @@
+{
+  "files": {
+    "claude_stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "claude_stdout.jsonl": {
+      "sha256": "eb9abe28492675bade7f8cf2d83b69e18fae75f5e481b26421cf5e7e9f145e57",
+      "size": 27664
+    },
+    "gateway_ledger.jsonl": {
+      "sha256": "b6ebb21173cd5fe5d5a1c7e624c7d0e0e686513f60f32a2d7fa16aa856c2b936",
+      "size": 4492
+    },
+    "patch.diff": {
+      "sha256": "02f21985e44b15e04c60f30de769aa3be667925e6bf5f64d2b563005b1af6bb3",
+      "size": 1271
+    },
+    "predictions.jsonl": {
+      "sha256": "8aeb08762c177060f785d1f13699272f97355af9dbee317e77da5d9043db1ed0",
+      "size": 1408
+    },
+    "prompt.txt": {
+      "sha256": "40fe4643fb4af2d7fd00aa7c91666c8d613fd8d411aae53d4094d771a7acbedb",
+      "size": 1939
+    },
+    "run.json": {
+      "sha256": "71d54c58862fffdff4c4acd0bd758d1d732fdd48f3eca7bfb86cc2c3af144a99",
+      "size": 10872
+    }
+  },
+  "run_id": "m2-django__django-13933-B-20261123T172904Z",
+  "schema": 1
+}

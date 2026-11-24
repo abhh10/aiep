@@ -1,0 +1,564 @@
+{
+  "blocks": {
+    "django__django-13933": {
+      "controls": {
+        "django__django-13933": {
+          "gold": {
+            "problems": [],
+            "summary": {
+              "f2p_passed": 1,
+              "f2p_total": 1,
+              "p2p_maintained": 19,
+              "p2p_total": 19,
+              "resolved": true,
+              "run_id": "m3ctl-gold-django-13933-20261123T172750Z",
+              "valid": true
+            }
+          },
+          "noop": {
+            "problems": [],
+            "summary": {
+              "f2p_passed": 0,
+              "f2p_total": 1,
+              "p2p_maintained": 19,
+              "p2p_total": 19,
+              "resolved": false,
+              "run_id": "m3ctl-noop-django-13933-20261123T172823Z",
+              "valid": true
+            }
+          }
+        }
+      },
+      "image_removed": false,
+      "overshoot_usd": {
+        "e1-exploratory-1/django__django-13933/A/r1": "0",
+        "e1-exploratory-1/django__django-13933/B/r1": "0"
+      },
+      "pulled": {},
+      "slots": {
+        "e1-exploratory-1/django__django-13933/A/r1": "done",
+        "e1-exploratory-1/django__django-13933/B/r1": "done"
+      },
+      "status": "done",
+      "task_id": "django__django-13933"
+    },
+    "django__django-15851": {
+      "controls": {
+        "django__django-15851": {
+          "gold": {
+            "problems": [],
+            "summary": {
+              "f2p_passed": 1,
+              "f2p_total": 1,
+              "p2p_maintained": 8,
+              "p2p_total": 8,
+              "resolved": true,
+              "run_id": "m3ctl-gold-django-15851-20261123T174156Z",
+              "valid": true
+            }
+          },
+          "noop": {
+            "problems": [],
+            "summary": {
+              "f2p_passed": 0,
+              "f2p_total": 1,
+              "p2p_maintained": 8,
+              "p2p_total": 8,
+              "resolved": false,
+              "run_id": "m3ctl-noop-django-15851-20261123T174232Z",
+              "valid": true
+            }
+          }
+        }
+      },
+      "image_removed": false,
+      "overshoot_usd": {
+        "e1-exploratory-1/django__django-15851/A/r1": "0",
+        "e1-exploratory-1/django__django-15851/B/r1": "0"
+      },
+      "pulled": {},
+      "slots": {
+        "e1-exploratory-1/django__django-15851/A/r1": "done",
+        "e1-exploratory-1/django__django-15851/B/r1": "done"
+      },
+      "status": "done",
+      "task_id": "django__django-15851"
+    },
+    "sympy__sympy-18621": {
+      "controls": {
+        "sympy__sympy-18621": {
+          "gold": {
+            "problems": [],
+            "summary": {
+              "f2p_passed": 1,
+              "f2p_total": 1,
+              "p2p_maintained": 15,
+              "p2p_total": 15,
+              "resolved": true,
+              "run_id": "m3ctl-gold-sympy-18621-20261123T171346Z",
+              "valid": true
+            }
+          },
+          "noop": {
+            "problems": [],
+            "summary": {
+              "f2p_passed": 0,
+              "f2p_total": 1,
+              "p2p_maintained": 15,
+              "p2p_total": 15,
+              "resolved": false,
+              "run_id": "m3ctl-noop-sympy-18621-20261123T171425Z",
+              "valid": true
+            }
+          }
+        }
+      },
+      "image_removed": false,
+      "overshoot_usd": {
+        "e1-exploratory-1/sympy__sympy-18621/A/r1": "0",
+        "e1-exploratory-1/sympy__sympy-18621/B/r1": "0"
+      },
+      "pulled": {},
+      "slots": {
+        "e1-exploratory-1/sympy__sympy-18621/A/r1": "done",
+        "e1-exploratory-1/sympy__sympy-18621/B/r1": "done"
+      },
+      "status": "done",
+      "task_id": "sympy__sympy-18621"
+    },
+    "sympy__sympy-22714": {
+      "controls": {
+        "sympy__sympy-22714": {
+          "gold": {
+            "problems": [],
+            "summary": {
+              "f2p_passed": 1,
+              "f2p_total": 1,
+              "p2p_maintained": 11,
+              "p2p_total": 11,
+              "resolved": true,
+              "run_id": "m3ctl-gold-sympy-22714-20261123T175545Z",
+              "valid": true
+            }
+          },
+          "noop": {
+            "problems": [],
+            "summary": {
+              "f2p_passed": 0,
+              "f2p_total": 1,
+              "p2p_maintained": 11,
+              "p2p_total": 11,
+              "resolved": false,
+              "run_id": "m3ctl-noop-sympy-22714-20261123T175621Z",
+              "valid": true
+            }
+          }
+        }
+      },
+      "image_removed": false,
+      "overshoot_usd": {
+        "e1-exploratory-1/sympy__sympy-22714/A/r1": "0",
+        "e1-exploratory-1/sympy__sympy-22714/B/r1": "0"
+      },
+      "pulled": {},
+      "slots": {
+        "e1-exploratory-1/sympy__sympy-22714/A/r1": "done",
+        "e1-exploratory-1/sympy__sympy-22714/B/r1": "done"
+      },
+      "status": "done",
+      "task_id": "sympy__sympy-22714"
+    }
+  },
+  "consecutive_infra_invalid": 0,
+  "cumulative_cost_usd": "0.2337872",
+  "decisions": {},
+  "definition_sha256": "9601b345da705b7e8bbdba251b902f4c7637482fd2e87e732dcba0dc36875eff",
+  "events": [
+    {
+      "event": "batch_start",
+      "stages": [
+        1
+      ],
+      "t": 1795454026.1
+    },
+    {
+      "allowance_status": "PROVISIONAL, not a guaranteed maximum",
+      "arms_reserved": 2,
+      "budget_usd_per_run": "0.18",
+      "event": "pair_reservation",
+      "funded": true,
+      "overshoot_allowance_usd": "0.30",
+      "remaining_cap_usd": "3.84",
+      "reservation_usd": "0.96",
+      "stage": 1,
+      "t": 1795454026.1,
+      "task": "sympy__sympy-18621"
+    },
+    {
+      "event": "control",
+      "kind": "gold",
+      "problems": [],
+      "t": 1795454065.4,
+      "task": "sympy__sympy-18621"
+    },
+    {
+      "event": "control",
+      "kind": "noop",
+      "problems": [],
+      "t": 1795454098.6,
+      "task": "sympy__sympy-18621"
+    },
+    {
+      "event": "run_start",
+      "slot": "e1-exploratory-1/sympy__sympy-18621/A/r1",
+      "t": 1795454098.6
+    },
+    {
+      "cost": "0.0397001",
+      "event": "run_done",
+      "handoff": "ready",
+      "resolved": true,
+      "slot": "e1-exploratory-1/sympy__sympy-18621/A/r1",
+      "t": 1795454182.3
+    },
+    {
+      "event": "overshoot_check",
+      "gateway_budget": "0.18",
+      "ledger_cost": "0.0397001",
+      "overshoot": "0",
+      "slot": "e1-exploratory-1/sympy__sympy-18621/A/r1",
+      "t": 1795454182.3
+    },
+    {
+      "event": "run_start",
+      "slot": "e1-exploratory-1/sympy__sympy-18621/B/r1",
+      "t": 1795454782.3
+    },
+    {
+      "cost": "0.0465250",
+      "event": "run_done",
+      "handoff": "ready_flagged",
+      "resolved": true,
+      "slot": "e1-exploratory-1/sympy__sympy-18621/B/r1",
+      "t": 1795454870.1
+    },
+    {
+      "event": "overshoot_check",
+      "gateway_budget": "0.18",
+      "ledger_cost": "0.0465250",
+      "overshoot": "0",
+      "slot": "e1-exploratory-1/sympy__sympy-18621/B/r1",
+      "t": 1795454870.1
+    },
+    {
+      "allowance_status": "PROVISIONAL, not a guaranteed maximum",
+      "arms_reserved": 2,
+      "budget_usd_per_run": "0.18",
+      "event": "pair_reservation",
+      "funded": true,
+      "overshoot_allowance_usd": "0.30",
+      "remaining_cap_usd": "3.7537749",
+      "reservation_usd": "0.96",
+      "stage": 1,
+      "t": 1795454870.1,
+      "task": "django__django-13933"
+    },
+    {
+      "event": "control",
+      "kind": "gold",
+      "problems": [],
+      "t": 1795454903.3,
+      "task": "django__django-13933"
+    },
+    {
+      "event": "control",
+      "kind": "noop",
+      "problems": [],
+      "t": 1795454942.5,
+      "task": "django__django-13933"
+    },
+    {
+      "event": "run_start",
+      "slot": "e1-exploratory-1/django__django-13933/B/r1",
+      "t": 1795454942.5
+    },
+    {
+      "cost": "0.0262755",
+      "event": "run_done",
+      "handoff": "ready",
+      "resolved": true,
+      "slot": "e1-exploratory-1/django__django-13933/B/r1",
+      "t": 1795455036.5
+    },
+    {
+      "event": "overshoot_check",
+      "gateway_budget": "0.18",
+      "ledger_cost": "0.0262755",
+      "overshoot": "0",
+      "slot": "e1-exploratory-1/django__django-13933/B/r1",
+      "t": 1795455036.5
+    },
+    {
+      "event": "run_start",
+      "slot": "e1-exploratory-1/django__django-13933/A/r1",
+      "t": 1795455636.5
+    },
+    {
+      "cost": "0.0332338",
+      "event": "run_done",
+      "handoff": "ready",
+      "resolved": true,
+      "slot": "e1-exploratory-1/django__django-13933/A/r1",
+      "t": 1795455715.9
+    },
+    {
+      "event": "overshoot_check",
+      "gateway_budget": "0.18",
+      "ledger_cost": "0.0332338",
+      "overshoot": "0",
+      "slot": "e1-exploratory-1/django__django-13933/A/r1",
+      "t": 1795455715.9
+    },
+    {
+      "allowance_status": "PROVISIONAL, not a guaranteed maximum",
+      "arms_reserved": 2,
+      "budget_usd_per_run": "0.18",
+      "event": "pair_reservation",
+      "funded": true,
+      "overshoot_allowance_usd": "0.30",
+      "remaining_cap_usd": "3.6942656",
+      "reservation_usd": "0.96",
+      "stage": 1,
+      "t": 1795455715.9,
+      "task": "django__django-15851"
+    },
+    {
+      "event": "control",
+      "kind": "gold",
+      "problems": [],
+      "t": 1795455752.1,
+      "task": "django__django-15851"
+    },
+    {
+      "event": "control",
+      "kind": "noop",
+      "problems": [],
+      "t": 1795455785.3,
+      "task": "django__django-15851"
+    },
+    {
+      "event": "run_start",
+      "slot": "e1-exploratory-1/django__django-15851/B/r1",
+      "t": 1795455785.3
+    },
+    {
+      "cost": "0.0157452",
+      "event": "run_done",
+      "handoff": "ready_flagged",
+      "resolved": true,
+      "slot": "e1-exploratory-1/django__django-15851/B/r1",
+      "t": 1795455872.7
+    },
+    {
+      "event": "overshoot_check",
+      "gateway_budget": "0.18",
+      "ledger_cost": "0.0157452",
+      "overshoot": "0",
+      "slot": "e1-exploratory-1/django__django-15851/B/r1",
+      "t": 1795455872.7
+    },
+    {
+      "event": "run_start",
+      "slot": "e1-exploratory-1/django__django-15851/A/r1",
+      "t": 1795456472.7
+    },
+    {
+      "cost": "0.0256974",
+      "event": "run_done",
+      "handoff": "ready",
+      "resolved": true,
+      "slot": "e1-exploratory-1/django__django-15851/A/r1",
+      "t": 1795456545.5
+    },
+    {
+      "event": "overshoot_check",
+      "gateway_budget": "0.18",
+      "ledger_cost": "0.0256974",
+      "overshoot": "0",
+      "slot": "e1-exploratory-1/django__django-15851/A/r1",
+      "t": 1795456545.5
+    },
+    {
+      "allowance_status": "PROVISIONAL, not a guaranteed maximum",
+      "arms_reserved": 2,
+      "budget_usd_per_run": "0.18",
+      "event": "pair_reservation",
+      "funded": true,
+      "overshoot_allowance_usd": "0.30",
+      "remaining_cap_usd": "3.6528230",
+      "reservation_usd": "0.96",
+      "stage": 1,
+      "t": 1795456545.5,
+      "task": "sympy__sympy-22714"
+    },
+    {
+      "event": "control",
+      "kind": "gold",
+      "problems": [],
+      "t": 1795456581.7,
+      "task": "sympy__sympy-22714"
+    },
+    {
+      "event": "control",
+      "kind": "noop",
+      "problems": [],
+      "t": 1795456614.9,
+      "task": "sympy__sympy-22714"
+    },
+    {
+      "event": "run_start",
+      "slot": "e1-exploratory-1/sympy__sympy-22714/A/r1",
+      "t": 1795456614.9
+    },
+    {
+      "cost": "0.0132116",
+      "event": "run_done",
+      "handoff": "ready_flagged",
+      "resolved": true,
+      "slot": "e1-exploratory-1/sympy__sympy-22714/A/r1",
+      "t": 1795456680.7
+    },
+    {
+      "event": "overshoot_check",
+      "gateway_budget": "0.18",
+      "ledger_cost": "0.0132116",
+      "overshoot": "0",
+      "slot": "e1-exploratory-1/sympy__sympy-22714/A/r1",
+      "t": 1795456680.7
+    },
+    {
+      "event": "run_start",
+      "slot": "e1-exploratory-1/sympy__sympy-22714/B/r1",
+      "t": 1795457280.7
+    },
+    {
+      "cost": "0.0333986",
+      "event": "run_done",
+      "handoff": "ready_flagged",
+      "resolved": true,
+      "slot": "e1-exploratory-1/sympy__sympy-22714/B/r1",
+      "t": 1795457376.6
+    },
+    {
+      "event": "overshoot_check",
+      "gateway_budget": "0.18",
+      "ledger_cost": "0.0333986",
+      "overshoot": "0",
+      "slot": "e1-exploratory-1/sympy__sympy-22714/B/r1",
+      "t": 1795457376.6
+    },
+    {
+      "event": "complete",
+      "not_run": [
+        "sphinx-doc__sphinx-10325",
+        "psf__requests-863"
+      ],
+      "t": 1795457376.6
+    }
+  ],
+  "experiment_id": "e1-exploratory-1",
+  "halt": null,
+  "not_run": [
+    {
+      "reason": "stage_not_activated",
+      "stage": 2,
+      "task_id": "sphinx-doc__sphinx-10325"
+    },
+    {
+      "reason": "stage_not_activated",
+      "stage": 2,
+      "task_id": "psf__requests-863"
+    }
+  ],
+  "replacements": [],
+  "reservations": [
+    {
+      "allowance_status": "PROVISIONAL, not a guaranteed maximum",
+      "arms_reserved": 2,
+      "budget_usd_per_run": "0.18",
+      "continuations": [],
+      "funded": true,
+      "overshoot_allowance_usd": "0.30",
+      "remaining_cap_usd": "3.84",
+      "reservation_usd": "0.96",
+      "stage": 1,
+      "task": "sympy__sympy-18621"
+    },
+    {
+      "allowance_status": "PROVISIONAL, not a guaranteed maximum",
+      "arms_reserved": 2,
+      "budget_usd_per_run": "0.18",
+      "continuations": [],
+      "funded": true,
+      "overshoot_allowance_usd": "0.30",
+      "remaining_cap_usd": "3.7537749",
+      "reservation_usd": "0.96",
+      "stage": 1,
+      "task": "django__django-13933"
+    },
+    {
+      "allowance_status": "PROVISIONAL, not a guaranteed maximum",
+      "arms_reserved": 2,
+      "budget_usd_per_run": "0.18",
+      "continuations": [],
+      "funded": true,
+      "overshoot_allowance_usd": "0.30",
+      "remaining_cap_usd": "3.6942656",
+      "reservation_usd": "0.96",
+      "stage": 1,
+      "task": "django__django-15851"
+    },
+    {
+      "allowance_status": "PROVISIONAL, not a guaranteed maximum",
+      "arms_reserved": 2,
+      "budget_usd_per_run": "0.18",
+      "continuations": [],
+      "funded": true,
+      "overshoot_allowance_usd": "0.30",
+      "remaining_cap_usd": "3.6528230",
+      "reservation_usd": "0.96",
+      "stage": 1,
+      "task": "sympy__sympy-22714"
+    }
+  ],
+  "schema": 1,
+  "stage_activations": [
+    {
+      "stages": [
+        1
+      ],
+      "t": 1795454026.1
+    }
+  ],
+  "status": "complete_with_unrun_stages",
+  "summary": {
+    "activated_stages": [
+      1
+    ],
+    "completed_tasks": [
+      "sympy__sympy-18621",
+      "django__django-13933",
+      "django__django-15851",
+      "sympy__sympy-22714"
+    ],
+    "incomplete_pairs": [],
+    "stopped_stages": [],
+    "unactivated_stages": [
+      2
+    ],
+    "unrun_tasks": [
+      "sphinx-doc__sphinx-10325",
+      "psf__requests-863"
+    ]
+  }
+}
