@@ -1,8 +1,9 @@
-"""Fake Docker for lifecycle tests: no daemon, no container, no network.
+"""Fake Docker for lifecycle tests: no daemon and no container; the only sockets are host-local loopback TCP.
 
-The fake daemon serves ``exec`` over real socket pairs (so stdin streaming, half-close and Docker's
-multiplexed framing are exercised) and emulates the container's filesystem with a real temporary
-directory per mount. What the "container" runs is real where that is safe and local:
+The fake daemon serves ``exec`` over real loopback TCP connections, one per exec (so stdin streaming, half-close and Docker's
+multiplexed framing are exercised; see ``_socketpair`` for why not AF_UNIX). Nothing leaves the host: every connection is
+127.0.0.1 to 127.0.0.1 on an ephemeral port, which the unit-suite network guard allows. It emulates the container's filesystem
+with a real temporary directory per mount. What the "container" runs is real where that is safe and local:
 
 * ``tar -x ... -C <dest>``  : extracted with python's tarfile into that mount's directory;
 * ``<python> -I -c VERIFY``  : the real VERIFY_SCRIPT, run against that directory. Only the one configured
@@ -27,6 +28,7 @@ import sys
 import tarfile
 import threading
 import time
+import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -85,7 +87,9 @@ class FakeExecApi:
 
     def exec_start(self, eid, socket=True, tty=False):
         a, b = _socketpair()
-        threading.Thread(target=self._serve, args=(eid, b), daemon=True).start()
+        server = threading.Thread(target=self._serve, args=(eid, b), daemon=True, name=f"fake-exec-server-{eid}")
+        SERVER_THREADS.add(server)  # tracked explicitly so tests can check that every server thread ends
+        server.start()
         return SimpleNamespace(_sock=a)
 
     def exec_inspect(self, eid):
@@ -142,8 +146,46 @@ class FakeExecApi:
                 pass
 
 
+SERVER_THREADS: "weakref.WeakSet[threading.Thread]" = weakref.WeakSet()  # every fake exec server thread ever started (weakly held)
+
+
+def live_server_threads() -> int:
+    """How many fake exec server threads are still running."""
+    return sum(1 for t in list(SERVER_THREADS) if t.is_alive())
+
+
 def _socketpair():
-    return socket.socketpair()
+    """A connected (client, server) pair over loopback TCP: the transport of one fake exec.
+
+    Why not ``socket.socketpair()``: on macOS an AF_UNIX pair occasionally (about 1 in 10,000 exchanges, reproduced with a standalone script) never delivers the peer's EOF
+    after ``shutdown(SHUT_WR)``, so a fake server blocked in ``recv`` waited forever and the exec ran into its full deadline. A loopback TCP pair showed no such loss in 640,000
+    comparable exchanges. That is experimental evidence on one machine, not a guarantee.
+
+    Each pair gets its own listener, bound to 127.0.0.1 on an ephemeral port (no fixed port, so no collision), which is closed as soon as the connection is accepted; if anything
+    fails here nothing stays open. The connection itself never leaves the host and the unit-suite network guard allows it (loopback)."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client = server = None
+    try:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(10)
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(10)
+        client.connect(listener.getsockname())
+        server, _ = listener.accept()
+        client.settimeout(None)
+        server.settimeout(None)  # whatever the listener's mode, both ends block like the AF_UNIX pair did
+        for end in (client, server):
+            end.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        return client, server
+    except BaseException:
+        for end in (client, server):  # whichever ends exist when setup fails (including the accepted one) are closed
+            if end is not None:
+                end.close()
+        raise
+    finally:
+        listener.close()
 
 
 # ---------------------------------------------------------------------------- the emulated container

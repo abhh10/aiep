@@ -129,6 +129,9 @@ class AgentResult:
     config_label: str = ""
     account: str = ""  # name:uid:gid of the verified identity the run used
     attachment: dict[str, Any] | None = None  # evidence from the post-start attachment check (networks, IPs, routes, published ports)
+    # The stdin writer's own failure while delivering the task prompt (exception type and errno), or None. In memory only: ``record_of`` and the run-record schema are
+    # unchanged; a delivery failure makes the run invalid and is named in ``invalid_reason``, which is in the record.
+    stdin_failure: str | None = None
 
 
 def record_of(result: AgentResult) -> dict[str, Any]:
@@ -323,12 +326,19 @@ def run_agent(
         if status != STATUS_EXITED:
             session.cancel()
         result.claude_exit_code = out.exit_code
+        result.stdin_failure = out.stdin_failure
         result.claude_stdout, result.claude_stderr, result.claude_output_truncated = out.stdout, out.stderr, out.truncated
 
         if status == STATUS_GATEWAY_STOPPED and stop_reason in INVALID_STOP_REASONS:
             result.invalid_reason = (f"the run was stopped because its host-side lease could not be refreshed: {stop_reason}"
                                      if stop_reason == "lease_lost" else f"gateway stopped the run: {stop_reason}")
             return result  # no extraction: this run does not count
+        if out.stdin_failure:
+            # The task travels on stdin only. If writing it failed (not because we cancelled), Claude saw a truncated or empty prompt: whatever it did is not a measurement
+            # of the configured task. The run is invalid, nothing is extracted, and the reason says what failed and what the exec reported.
+            result.invalid_reason = (f"the task prompt was not delivered completely: stdin write failed ({out.stdin_failure}); "
+                                     f"claude exec status {result.status}, exit code {out.exit_code if out.exit_code is not None else 'unavailable'}")
+            return result
         if out.truncated:
             # The output hit the cap (MAX_CLAUDE_OUTPUT) and the reader stopped: the record of what Claude did is incomplete, and the exec may
             # have been blocked on a full pipe. A CENSORED run is never graded as a normal one: invalid, no patch extraction, no predictions.

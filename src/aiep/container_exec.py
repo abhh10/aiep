@@ -14,6 +14,7 @@ Real behaviour of Docker Desktop's hijacked exec sockets is a Phase 2 validation
 
 from __future__ import annotations
 
+import errno
 import socket
 import struct
 import threading
@@ -64,6 +65,10 @@ class ExecOutcome:
     timed_out: bool = False
     stdin_bytes: int = 0
     stdin_error: str | None = None
+    # Set only when the stdin writer failed on its own (not as a side effect of this session being cancelled or closed): the writer's exception type and errno.
+    # The exec's output and exit status are still collected when they are available. run_checked reports this failure ahead of a generic timeout, and the agent runner
+    # marks the run invalid: a prompt that was not fully delivered must never pass for an ordinary result.
+    stdin_failure: str | None = None
 
 
 def _raw_socket(sock: Any) -> Any:
@@ -82,6 +87,7 @@ class ExecSession:
         self._out, self._err = bytearray(), bytearray()
         self._truncated = False
         self._stdin_error: str | None = None
+        self._stdin_failure: str | None = None
         self._cancelled = False
         self._closed = False
         self._sock: Any = None
@@ -111,6 +117,31 @@ class ExecSession:
             self._sock.shutdown(socket.SHUT_WR)  # EOF on the process's stdin
         except OSError as e:
             self._stdin_error = f"{type(e).__name__}"
+            self._writer_failed(e)
+        except BaseException as e:  # never leave the reader waiting for an EOF that can no longer come; the exception itself is not swallowed
+            self._stdin_error = f"{type(e).__name__}"
+            self._writer_failed(e)
+            raise
+
+    def _writer_failed(self, exc: BaseException) -> None:
+        """The stdin writer failed. If that is the cause (this session was not already cancelled or closed, which would explain a write error), record
+        what failed and make sure the process cannot keep waiting for an EOF that will never come, without cutting off what it has already written.
+
+        First a half-close (``SHUT_WR``): the process sees end-of-input (truncated), runs on, and the reader keeps draining its output and the exec's exit
+        status is collected as usual; the caller still gets the failure, because ``stdin_failure`` is set. Only if the half-close itself fails is the whole socket
+        shut down (``SHUT_RDWR``), which releases a reader that would otherwise wait for the full deadline. Whatever happens here, the writer's own exception stays
+        the recorded failure: errors from this cleanup are never recorded or raised. Nothing here waits: the execution deadline of ``run_exec`` still bounds the exec."""
+        if self._closed or self._cancelled:
+            return  # a consequence of our own cancel or close, not a cause: keep the ordinary timeout reporting
+        code = getattr(exc, "errno", None)
+        name = errno.errorcode.get(code, str(code)) if isinstance(code, int) else None
+        self._stdin_failure = f"{type(exc).__name__}" + (f" ({name})" if name else "")
+        for how in (socket.SHUT_WR, socket.SHUT_RDWR):
+            try:
+                self._sock.shutdown(how)
+                return
+            except (OSError, AttributeError):
+                continue  # already closed, never connected or already shut down: try the stronger shutdown; the original error is kept either way
 
     def _recv_exact(self, n: int) -> bytes | None:
         buf = bytearray()
@@ -186,7 +217,7 @@ class ExecSession:
                     break
                 time.sleep(0.02)
         return ExecOutcome(exit_code, bytes(self._out), bytes(self._err), self._truncated, timed_out,
-                           len(self.stdin or b""), self._stdin_error)
+                           len(self.stdin or b""), self._stdin_error, self._stdin_failure)
 
 
 def run_exec(api: Any, container_id: str, argv: list[str], *, ctx: ExecContext, workdir: str = "/",
@@ -205,7 +236,8 @@ def run_exec(api: Any, container_id: str, argv: list[str], *, ctx: ExecContext, 
 def run_checked(*args: Any, what: str, **kw: Any) -> ExecOutcome:
     out = run_exec(*args, **kw)
     if out.timed_out or out.truncated or out.exit_code != 0 or out.stdin_error:
-        why = ("timed out" if out.timed_out else "output over the cap" if out.truncated
+        why = (f"stdin write failed ({out.stdin_failure})" if out.stdin_failure
+               else "timed out" if out.timed_out else "output over the cap" if out.truncated
                else f"stdin error {out.stdin_error}" if out.stdin_error else f"exit code {out.exit_code}")
         raise ExecError(f"{what} failed: {why}; stderr: {out.stderr[-300:].decode('utf-8', 'replace')!r}")
     return out

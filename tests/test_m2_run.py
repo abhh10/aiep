@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from aiep import artifacts, experiment, m2_run
-from aiep.agent_runner import AgentResult
+from aiep.agent_runner import AgentResult, record_of
 from aiep.experiment import ClaudeCliUnpinned
 from aiep.gateway_runner import GatewayImageUnpinned
 from aiep.container_policy import PolicyViolation
@@ -657,6 +657,41 @@ def test_the_run_record_carries_the_pinned_claude_runtime_and_what_stays_uncontr
     rj = json.loads((run(p, root).directory / "run.json").read_text())
     assert rj["claude_runtime"]["pinned_env"] == AGENT_RUNTIME_PINS and rj["claude_runtime"]["uncontrolled"]
     assert rj["limits"]["gateway_drain_timeout_s"] > 0
+
+
+def test_a_failed_prompt_delivery_reason_survives_the_lifecycle_and_persist_path_into_run_json(root):
+    """The agent runner marks a run invalid when the task could not be written to stdin completely and names the failure in ``invalid_reason``. This follows that exact reason
+    through ``lifecycle_record``/``record_of`` and ``_persist`` to ``run.json`` on disk (the run-record schema is unchanged: ``stdin_failure`` stays in memory only)."""
+    p = prep(root)
+    r = lifecycle(p, valid=False, patch="")
+    reason = ("the task prompt was not delivered completely: stdin write failed (BrokenPipeError (EPIPE)); "
+              "claude exec status exited, exit code 0")
+    r.agent.invalid_reason = reason
+    r.agent.stdin_failure = "BrokenPipeError (EPIPE)"
+    r.agent.patch = None  # run_agent returns before any extraction
+    ex = run(p, root, res=r)
+
+    assert ex.predictions is None and ex.eval_command is None and ex.problems == []
+    names = {x.name for x in ex.directory.iterdir()}
+    assert names.isdisjoint({"patch.diff", "predictions.jsonl"})  # an invalid run is kept without a patch, as before
+
+    text = (ex.directory / "run.json").read_text()
+    rj = json.loads(text)
+    agent = rj["lifecycle"]["agent"]
+    assert agent["valid"] is False
+    assert agent["invalid_reason"] == reason  # the complete explanation, byte for byte, read back from the file on disk
+    assert "stdin write failed (BrokenPipeError (EPIPE))" in agent["invalid_reason"] and "exit code 0" in agent["invalid_reason"]
+    assert "stdin_failure" not in agent and "stdin_failure" not in text  # no new serialized key anywhere in the record
+    assert set(agent) == set(record_of(lifecycle(p).agent))  # exactly the keys of an ordinary agent record: nothing added
+
+    task_marker = p.task_text.strip().splitlines()[0]
+    assert len(task_marker) > 10 and task_marker not in agent["invalid_reason"] and task_marker not in json.dumps(agent)  # the task prompt is not in the reason or the agent record
+    assert p.task_text not in text  # run.json holds only the prompt's hash, never its text
+    assert rj["prompt"]["prompt_sha256"] == experiment.sha256_text(p.task_text)
+
+    manifest = json.loads((ex.directory / "artifacts_manifest.json").read_text())  # artifact bookkeeping is unchanged
+    assert "run.json" in manifest["files"] and manifest["files"]["run.json"]["sha256"] == hashlib.sha256(text.encode()).hexdigest()
+    assert manifest["files"]["run.json"]["size"] == len(text.encode())
 
 
 def test_a_truncated_claude_output_never_reaches_predictions_or_normal_grading(root):
