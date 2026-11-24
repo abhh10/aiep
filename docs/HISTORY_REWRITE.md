@@ -1,6 +1,6 @@
 # History rewrite and commit mapping
 
-Before this repository was published, its Git history was rewritten once to remove private working notes and personal details (local paths, account figures, a conversation identifier and similar). Authorship, dates, commit order, commit messages (apart from two sentences, below) and all source code, configuration, tests, results and documentation were kept. The rewrite changed every commit hash after the first, so hashes quoted in older documents, in the frozen research report (`docs/research/E1_STAGE1_REPORT.md`) and in the evidence bundle refer to the **original, unpublished history** and do not exist in this repository.
+Before this repository was published, its Git history was rewritten to remove private working notes and personal details (local paths, account figures, a conversation identifier and similar). Authorship, dates, commit order, commit messages (apart from two sentences, below) and all source code, configuration, tests, results and documentation were kept. The rewrite changed every commit hash after the first, so hashes quoted in older documents, in the frozen research report (`docs/research/E1_STAGE1_REPORT.md`) and in the evidence bundle refer to the **original, unpublished history** and do not exist in this repository.
 
 ## What changed
 
@@ -12,6 +12,8 @@ Before this repository was published, its Git history was rewritten once to remo
 ## The experiment's execution commit
 
 E1 Stage 1 was run at the original harness commit `28e758e5f3ccf4598fe843fe4a3abbed3628eb83`, which every run record and the research report cite. Its equivalent in this repository's history is `087d65da7431d24ce14d882ddc28ae7354b7a3a3`. The two trees differ only by the removed notes and the sanitized lines of `docs/PROJECT_STATUS.md` and `scripts/m1_eval.sh`; all code, configuration and tests that the experiment executed are identical. The mapping is recorded in `config/history_rewrite.json`; the evidence provenance (schema 3) records both commits, and `scripts/verify_e1_stage1_evidence.py` checks that the public one exists, that the builder commit descends from it, and that the committed mapping agrees. Run records are never modified: the original commit stays in them as the experiment's execution identity.
+
+The frozen research report (`docs/research/E1_STAGE1_REPORT.md`, SHA-256 `8914aa8a3654a3807ed555467356d37f0ab47ca3de25ef496de452666d0c797a`) was deliberately left byte-for-byte unchanged, so it quotes original-history hashes (the execution commit above, and the lock, budget and preparation commits listed in the table below); a test pins its hash.
 
 ## Commit map (original to published)
 

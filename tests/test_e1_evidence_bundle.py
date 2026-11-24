@@ -467,14 +467,49 @@ def test_the_evidence_bundle_is_present():
     assert (BUNDLE / "MANIFEST.sha256").is_file() and (BUNDLE / "PROVENANCE.json").is_file()
 
 
-def test_the_real_bundle_verifies_once_rebuilt_and_is_explicitly_rejected_while_legacy(capsys):
-    legacy = json.loads((BUNDLE / "PROVENANCE.json").read_text()).get("schema") != 2
+REPORT = ROOT / "docs" / "research" / "E1_STAGE1_REPORT.md"
+REPORT_SHA256 = "8914aa8a3654a3807ed555467356d37f0ab47ca3de25ef496de452666d0c797a"  # the frozen report; it cites the ORIGINAL execution commit and must never be edited
+
+
+def test_the_frozen_report_is_byte_identical_to_its_recorded_hash():
+    assert hashlib.sha256(REPORT.read_bytes()).hexdigest() == REPORT_SHA256
+
+
+def test_the_real_bundle_carries_the_current_provenance_schema():
+    prov = json.loads((BUNDLE / "PROVENANCE.json").read_text())
+    assert prov["schema"] == builder.PROVENANCE_SCHEMA == 3
+    assert verifier.provenance_schema_problems(prov) == []
+    assert prov["execution"]["harness_commit"] == "28e758e5f3ccf4598fe843fe4a3abbed3628eb83"  # the original execution commit, as recorded by the eight runs
+
+
+def test_the_real_bundle_verifies(capsys):
     rc = verifier.main(["--bundle", str(BUNDLE)])
     out = capsys.readouterr().out
-    if legacy:  # interim state: the bundle is rebuilt after the builder is committed (it must then verify)
-        assert rc == 1 and "legacy provenance schema 1" in out
-    else:
-        assert rc == 0 and "FAIL" not in out
+    assert rc == 0 and "FAIL" not in out, [l for l in out.splitlines() if "FAIL" in l]
+
+
+def test_the_real_bundle_verifies_without_a_single_skipped_check_when_full_history_is_available(capsys):
+    if verifier.git_availability(ROOT) != "full":
+        pytest.skip("this checkout has no complete Git history (a shallow clone or no repository); the history-dependent checks would be SKIPped by design")
+    rc = verifier.main(["--bundle", str(BUNDLE), "--require-git"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "FAIL" not in out and "SKIP" not in out
+    assert "65 of 65 checks passed" in out
+
+
+@pytest.mark.parametrize("schema", [1, 2])
+def test_genuinely_legacy_provenance_schemas_are_still_rejected_on_a_copy_of_the_real_bundle(tmp_path, capsys, schema):
+    bundle = tmp_path / "bundle"
+    shutil.copytree(BUNDLE, bundle)
+    prov = json.loads((bundle / "PROVENANCE.json").read_text())
+    prov["schema"] = schema
+    if schema == 2:
+        prov["execution"].pop("public_history_commit")
+    (bundle / "PROVENANCE.json").write_text(json.dumps(prov, indent=2, sort_keys=True) + "\n")
+    write_manifest(bundle)
+    rc = verifier.main(["--bundle", str(bundle)])
+    out = capsys.readouterr().out
+    assert rc == 1 and f"legacy provenance schema {schema}" in out
 
 
 def test_the_verifier_catches_a_tampered_ledger_even_when_the_manifest_is_regenerated(fx, capsys):
